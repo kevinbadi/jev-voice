@@ -163,6 +163,7 @@ $("wf-delete").addEventListener("click", () =>
 );
 function controls() {
   $("start").disabled = busy;
+  $("go").disabled = busy;
   $("preview").disabled = busy;
   $("display").disabled = busy;
   $("goal").disabled = busy;
@@ -380,6 +381,26 @@ $("task-form").addEventListener("submit", (event) => {
     $("status").textContent = "Jev is comparing the actions…";
     await call("predict");
   }, "Observing the monitor…");
+});
+async function go() {
+  automatic = false;
+  runStartedAt = null;
+  runStoppedAt = null;
+  phaseTimes = [];
+  setPhase("", "");
+  await perform(async () => {
+    $("status").textContent = "Opening the tab…";
+    await call("reset", { goal: $("goal").value, display: $("display").value, driver: $("driver").value, url: $("url").value });
+    clockStart();
+    await runJob("full", "Running the full flow…");
+  }, "Starting…");
+}
+$("go").addEventListener("click", go);
+$("goal").addEventListener("keydown", (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+    event.preventDefault();
+    go();
+  }
 });
 $("preview").addEventListener("click", () => perform(() => call("preview", { display: $("display").value }), "Reading the monitor…"));
 $("choose").addEventListener("click", () => perform(() => call("predict"), "Jev is comparing the actions…"));

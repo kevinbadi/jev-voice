@@ -134,10 +134,11 @@ def response_state() -> dict[str, Any]:
         state = normalise(dict(AGENT.snapshot()))
     else:
         state = {"page": None, "status": "idle", "history": [], "decision": None, "decisions": [], "text_calls": [], "elapsed_ms": 0}
+    ready = availability()
     return {
         **state,
         "mode": MODE,
-        "modes": {k: {**v, **a} for k, v in MODES.items() for a in [availability()[k]]},
+        "modes": {k: {**v, **ready[k]} for k, v in MODES.items()},
         "jev_model": os.environ.get("TYPESAFE_MODEL", config.JEV_MODEL),
         "max_steps": STOCK["max_steps"] if MODE == "ultrafast" else VOICE["max_steps"],
         "max_seconds": MAX_SECONDS,
