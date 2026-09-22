@@ -152,9 +152,62 @@ def _facts(listings: list[dict[str, Any]], chosen: dict[str, Any], requested_yea
     return facts or {"fit": "it best fits what you asked for among the listings found"}
 
 
+MAKES = [
+    "Acura", "Alfa Romeo", "Aston Martin", "Audi", "Bentley", "BMW", "Buick", "Cadillac", "Chevrolet", "Chrysler", "Dodge", "Ferrari",
+    "Fiat", "Ford", "Genesis", "GMC", "Honda", "Hyundai", "Infiniti", "Jaguar", "Jeep", "Kia", "Lamborghini", "Land Rover", "Lexus",
+    "Lincoln", "Maserati", "Mazda", "McLaren", "Mercedes-Benz", "Mercedes", "Mini", "Mitsubishi", "Nissan", "Polestar", "Porsche", "Ram",
+    "Rivian", "Rolls-Royce", "Subaru", "Tesla", "Toyota", "Volkswagen", "Volvo",
+]
+
+
+def must_match(goal: str) -> dict[str, str]:
+    """Make/model the goal asks for, read from the goal text in code. Enforced on every candidate."""
+    out: dict[str, str] = {}
+    m = re.search(r"\bmake\s*(?:to|=|:|is)?\s*([A-Z][\w-]+(?:\s[A-Z][\w-]+)?)", goal, re.I)
+    if m:
+        out["make"] = m.group(1).strip()
+    else:
+        for make in sorted(MAKES, key=len, reverse=True):
+            if re.search(r"\b" + re.escape(make) + r"\b", goal, re.I):
+                out["make"] = make
+                break
+    m = re.search(
+        r"\bmodel\s*(?:to|=|:|is)?\s*([A-Za-z0-9][\w-]*(?:\s[A-Za-z0-9][\w-]*)?)(?=[,.;]|\s+(?:and|with|minimum|maximum|under|near|then)\b|$)",
+        goal, re.I,
+    )
+    if m:
+        out["model"] = m.group(1).strip()
+    elif "make" in out:
+        after = re.search(re.escape(out["make"]) + r"\s+([A-Za-z0-9][\w-]{1,15})\b", goal, re.I)
+        if after and after.group(1).lower() not in {"for", "and", "with", "under", "near", "priced", "listing", "listings", "cars", "car"}:
+            out["model"] = after.group(1)
+    return out
+
+
+def matches_goal(listing: dict[str, Any], required: dict[str, str]) -> bool:
+    text = (listing.get("title", "") + " " + listing.get("text", "")).lower().replace("-", " ")
+    make = required.get("make", "").lower().replace("-", " ")
+    if make:
+        stem = make.split()[0]
+        if stem not in text:
+            return False
+    model = required.get("model", "").lower().replace("-", " ")
+    if model and re.search(r"\b" + re.escape(model) + r"\b", text) is None:
+        return False
+    return True
+
+
 def pick(goal: str, listings: list[dict[str, Any]]) -> dict[str, Any]:
     """One Jev request: choose the listing. A second, tiny one: choose the true reason to give."""
-    if len(listings) < 2:
+    required = must_match(goal)
+    if required:
+        matching = [x for x in listings if matches_goal(x, required)]
+        if not matching:
+            wanted = " ".join(required.values())
+            raise ValueError(f"None of the {len(listings)} listings on the results page is a {wanted}; the site is showing similar "
+                             "cars instead. Nothing recommended, nobody messaged.")
+        listings = matching
+    if len(listings) < 1:
         raise ValueError("No vehicle listings could be read from this page; the run did not reach a results page")
     key = os.environ.get("TYPESAFE_API_KEY") or config.TYPESAFE_API_KEY
     model = os.environ.get("TYPESAFE_MODEL", config.JEV_MODEL)

@@ -449,3 +449,18 @@ def test_repeated_rejection_of_one_choice_stops_the_run(runner, monkeypatch):
         else:
             runner.stale(StaleScreen("covered"))
     assert runner.state["status"] == "blocked"
+
+
+def test_recommendation_refuses_listings_that_do_not_match_the_goal():
+    from jev_voice import recommend as rc
+
+    goal = "On Facebook Marketplace vehicles, set Make to Mercedes-Benz, Model to CLA, minimum year 2020 and maximum price $15,000."
+    assert rc.must_match(goal) == {"make": "Mercedes-Benz", "model": "CLA"}
+    tesla = {"title": "2020 Tesla model 3", "text": "2020 Tesla model 3 CA$12,995", "year": 2020, "price": 12995, "km": 50000, "href": "x"}
+    boat = {"title": "2020 Glen l thunderbolt", "text": "boat", "year": 2020, "price": 13000, "km": None, "href": "y"}
+    cla = {"title": "2020 Mercedes-Benz cla-class", "text": "CLA 250", "year": 2020, "price": 14000, "km": 40000, "href": "z"}
+    assert not rc.matches_goal(tesla, rc.must_match(goal)) and not rc.matches_goal(boat, rc.must_match(goal))
+    assert rc.matches_goal(cla, rc.must_match(goal))
+    with pytest.raises(ValueError, match="Nothing recommended, nobody messaged"):
+        rc.pick(goal, [tesla, boat])
+    assert rc.must_match("Find a used 2020 Mercedes-Benz CLA under $15,000 near Toronto") == {"make": "Mercedes-Benz", "model": "CLA"}

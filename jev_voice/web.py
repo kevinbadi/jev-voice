@@ -884,6 +884,7 @@ class WebAgent(uf_agent.Agent):
                     # consecutive DONE stands; the outcome is verified independently, not by the choice.
                     self.state["decision"] = None
                     self.state["status"] = "done"
+                    self.state["results_url"] = self.state["page"]["url"]  # the verified, filtered results: always return here
                     for rule in self._pending_rules:
                         self.site_rules = save_rule(self.state["page"]["url"], rule)
                     self._pending_rules = []
@@ -972,7 +973,9 @@ class WebAgent(uf_agent.Agent):
         rec = self.state.get("recommendation")
         if not rec:
             raise ValueError("Recommend first")
-        candidates = [rec["listing"]] + [c for c in rec.get("ranked_full", []) if c is not rec["listing"]]
+        required = rc.must_match(self.state["original_goal"])
+        candidates = [c for c in [rec["listing"]] + [c for c in rec.get("ranked_full", []) if c is not rec["listing"]]
+                      if rc.matches_goal(c, required)]
         results: list[dict[str, Any]] = self.state.setdefault("messages", [])
         done_urls = {m["url"] for m in results}
         for candidate in candidates:
@@ -989,6 +992,13 @@ class WebAgent(uf_agent.Agent):
             results.append(outcome)
             done_urls.add(url)
             print(f"  ✉ {outcome['status'].upper()} · {outcome['listing'][:60]}", flush=True)
+        if self.state.get("results_url"):
+            try:
+                self.browser.call("Page.navigate", url=self.state["results_url"])
+                time.sleep(1.0)
+                self.state["page"] = self.browser.observe(screenshot=self.screenshots)
+            except Exception:  # noqa: BLE001
+                pass
         return results
 
     def recommend(self, pages: int | None = None, open_result: bool = True) -> dict[str, Any]:
@@ -996,11 +1006,14 @@ class WebAgent(uf_agent.Agent):
         from . import recommend as rc
 
         started = time.perf_counter()
+        results_url = self.state.get("results_url")
+        if results_url and self.state["page"]["url"] != results_url:
+            self.browser.call("Page.navigate", url=results_url)
+            time.sleep(1.5)
         listings = rc.harvest(self.browser, pages or rc.MAX_PAGES)
-        rec = rc.pick(self.state["goal"], listings)
+        rec = rc.pick(self.state["original_goal"], listings)
         rec["harvest_ms"] = round((time.perf_counter() - started) * 1000) - sum(c["latency_ms"] for c in rec["calls"])
         self.state["text_calls"].extend({**c, "field": "recommendation", "value": rec["summary"]} for c in rec["calls"])
-        self.state["results_url"] = self.state["page"]["url"]
         self.state["recommendation"] = {k: v for k, v in rec.items() if k != "request"}
         self.state["recommendation"]["ranked_full"] = [x for x in rec.get("ranked_listings", []) if x is not rec["listing"]]
         if open_result:
