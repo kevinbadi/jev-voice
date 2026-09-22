@@ -208,37 +208,37 @@ def matches_goal(listing: dict[str, Any], required: dict[str, str]) -> bool:
     return True
 
 
-def pick(goal: str, listings: list[dict[str, Any]]) -> dict[str, Any]:
-    """One Jev request: choose the listing. A second, tiny one: choose the true reason to give."""
+def filter_constraints(goal: str, listings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Hard constraints the goal states, enforced in code: make/model, minimum year, maximum price.
+    Sites pad filtered results with 'similar' listings that break them."""
     required = must_match(goal)
-    if required:
-        matching = [x for x in listings if matches_goal(x, required)]
-        if not matching:
-            wanted = " ".join(required.values())
-            raise ValueError(f"None of the {len(listings)} listings on the results page is a {wanted}; the site is showing similar "
-                             "cars instead. Nothing recommended, nobody messaged.")
-        listings = matching
-    if len(listings) < 1:
-        raise ValueError("No vehicle listings could be read from this page; the run did not reach a results page")
-    key = os.environ.get("TYPESAFE_API_KEY") or config.TYPESAFE_API_KEY
-    model = os.environ.get("TYPESAFE_MODEL", config.JEV_MODEL)
-    year = re.search(r"\b(20\d{2}|19\d{2})\b", goal)
-    requested_year = int(year.group(1)) if year else None
-    # Hard constraints the goal states are enforced in code before Jev chooses: sites pad filtered
-    # results with "similar" listings that break them.
+    keep = [x for x in listings if matches_goal(x, required)] if required else list(listings)
     min_year = re.search(
         r"(?:minimum year|min(?:imum)?\s*year|newer than|at least|from)\s*(20\d{2}|19\d{2})|(20\d{2}|19\d{2})\s*(?:or newer|\+|and up)",
         goal, re.I,
     )
     max_price = re.search(r"(?:under|below|less than|max(?:imum)?(?: price)?(?: of)?|up to)\s*\$?\s*([\d,]{3,})", goal, re.I)
-    keep = listings
     if min_year:
         y = int(min_year.group(1) or min_year.group(2))
-        keep = [x for x in keep if x.get("year") is None or x["year"] >= y] or keep
+        keep = [x for x in keep if x.get("year") is None or x["year"] >= y]
     if max_price:
         cap = int(max_price.group(1).replace(",", ""))
-        keep = [x for x in keep if x.get("price") is None or x["price"] <= cap] or keep
-    listings = keep
+        keep = [x for x in keep if x.get("price") is None or x["price"] <= cap]
+    return keep
+
+
+def pick(goal: str, listings: list[dict[str, Any]]) -> dict[str, Any]:
+    """One Jev request: choose the listing. A second, tiny one: choose the true reason to give."""
+    total = len(listings)
+    listings = filter_constraints(goal, listings)
+    if not listings:
+        wanted = " ".join(must_match(goal).values()) or "match"
+        raise ValueError(f"None of the {total} listings read matches the goal ({wanted}, year and price); the site is showing similar "
+                         "cars instead. Nothing recommended, nobody messaged.")
+    key = os.environ.get("TYPESAFE_API_KEY") or config.TYPESAFE_API_KEY
+    model = os.environ.get("TYPESAFE_MODEL", config.JEV_MODEL)
+    year = re.search(r"\b(20\d{2}|19\d{2})\b", goal)
+    requested_year = int(year.group(1)) if year else None
     ids = {f"L{i + 1}": x for i, x in enumerate(listings)}
     body = {
         "model": model,
