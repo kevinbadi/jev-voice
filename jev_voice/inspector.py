@@ -141,7 +141,9 @@ def command(name: str, body: dict[str, Any]) -> dict[str, Any]:
             url = (body.get("url") or DEFAULT_URL).strip()
             if not url.startswith(("http://", "https://")):
                 url = "https://" + url
+                JOB["phase"] = "planning"
             AGENT = WebAgent(goal, url=url, display=None if display == "all" else display, screenshots=True)
+            JOB["phase"] = None
         else:
             if DESKTOP is None or DESKTOP.display != display_bounds(display):
                 DESKTOP = Desktop(display=display)

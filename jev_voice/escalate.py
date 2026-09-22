@@ -116,6 +116,7 @@ def plan(goal: str, page: dict[str, Any], controls: list[str] | None = None) -> 
         schema,
         max_tokens=1000,
         slot="plan",
+        model=os.environ.get("ESCALATE_PLAN_MODEL", FAST_MODEL),  # planning is on the critical path before the first action
     )
     return [s.strip() for s in data["steps"] if s.strip()], meta
 

@@ -20,6 +20,7 @@ dependencies = [
 jev-voice = "jev_voice.main:main"
 jev-agent = "jev_voice.agent:main"
 jev-inspect = "jev_voice.inspector:main"
+jev-modes = "jev_voice.modes:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -27,7 +28,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["jev_voice"]
-include = ["jev_voice/static/*"]
+include = ["jev_voice/static/*", "jev_voice/static_modes/*"]
 
 [dependency-groups]
 dev = ["pytest>=8.4,<9", "ruff>=0.14,<1"]

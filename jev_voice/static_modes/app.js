@@ -143,6 +143,9 @@ async function perform(fn, label) {
 }
 async function runJob() {
   await call("run", {});
+  await pollJob();
+}
+async function pollJob() {
   automatic = true;
   controls();
   while (automatic) {
@@ -181,7 +184,7 @@ function render() {
     .join("");
   const costs = state.costs || {};
   $("cost-total").textContent = usd(costs.total_usd ?? costs.total);
-  $("cost-jev").textContent = (state.decisions || []).length + (state.text_calls || []).filter((t) => String(t.model || "").startsWith("jev:")).length;
+  $("cost-jev").textContent = costs.jev?.requests ?? (state.decisions || []).length;
   const escalations = state.escalations || [];
   const textCalls = (state.text_calls || []).filter((t) => !String(t.model || "").startsWith("jev:"));
   $("cost-llm").textContent = state.mode === "agent" ? escalations.length : textCalls.length;
@@ -337,7 +340,7 @@ $("download").addEventListener("click", () => {
 refresh()
   .then(() => selectMode(state.page ? state.mode : "ultrafast", { keepGoal: false }))
   .then(() => {
-    if (state.job?.running) runJob().catch(() => {});
+    if (state.job?.running) pollJob().catch(() => {});
   })
   .catch(() => {
     $("status").textContent = "Cannot reach the local server";

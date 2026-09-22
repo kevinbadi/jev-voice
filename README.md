@@ -137,6 +137,22 @@ before execution; **Run automatically** loops. Pick the monitor in the form; `AG
 in `.env` sets the default. Left/right follow the macOS Displays arrangement, so use `main`
 or an index when that differs from the physical layout.
 
+### Browser-use modes
+
+```sh
+uv run jev-modes            # open http://127.0.0.1:8767
+```
+
+A second, separate page (own port, own static files) that drives Chrome in one of three modes:
+
+| Mode | What runs |
+| --- | --- |
+| **Ultrafast** | jev-ultrafast exactly as it shipped: the stock `Agent` on a plain CDP tab, Jev chooses, the OpenAI-compatible text helper writes `TYPE_TEXT` (needs `TEXT_MODEL_API_KEY`), 60-step budget, no guards, no Claude. Its Google Flights and fixture scenarios are kept. |
+| **Jev + guards** | `WebAgent` with Claude switched off: the window confined to `AGENT_DISPLAY`, modal/cycle/futile pruning, hesitant BLOCKED, provider retries, `TYPE_TEXT` selected by Jev from the goal when no text model is set. |
+| **Agent** | The full agent: Claude planner, Jev → Haiku → Fable tie-breaks, DONE verifier, learned site rules and per-site trust. Needs `ANTHROPIC_API_KEY`. |
+
+Step through with **Choose next / Execute choice**, or **Run automatically** (a background job the page polls; **Pause** stops after the current step). Agent modes accept a follow-up goal on the same tab. The right column shows Jev's operation and target probabilities, the text value, run cost, and, in agent mode, every Claude escalation.
+
 Read [docs/design.md](docs/design.md) for the freshness guards and the differences from the browser version.
 
 ## How the Jev layer works (`jev_voice/brain.py`)
@@ -191,6 +207,7 @@ jev_voice/
   policy.py   dynamic operation/target heads, text helper (model.py)
   questions.py model instructions for the agent
   inspector.py loopback inspector server (demo.py); static/ holds the page
+  modes.py    browser-use modes page (ultrafast / jev + guards / agent); static_modes/ holds it
   web.py      browser driver: jev-ultrafast Agent/Browser on a confined Chrome window + guards
   recommend.py listing harvest → Jev pick → verified reason → open the listing
   costs.py    Jev / text-helper cost accounting

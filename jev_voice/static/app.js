@@ -389,9 +389,11 @@ async function go() {
   phaseTimes = [];
   setPhase("", "");
   await perform(async () => {
-    $("status").textContent = "Opening the tab…";
-    await call("reset", { goal: $("goal").value, display: $("display").value, driver: $("driver").value, url: $("url").value });
     clockStart();
+    setPhase("exec", "opening the tab · planning");
+    $("status").textContent = "Opening the tab and planning the checklist…";
+    await call("reset", { goal: $("goal").value, display: $("display").value, driver: $("driver").value, url: $("url").value });
+    clockMark("ready");
     await runJob("full", "Running the full flow…");
   }, "Starting…");
 }
