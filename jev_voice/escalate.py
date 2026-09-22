@@ -47,7 +47,8 @@ def enabled() -> bool:
 def _client_() -> anthropic.Anthropic:
     global _client
     if _client is None:
-        _client = anthropic.Anthropic(timeout=20.0, max_retries=1)
+        # 529 overloaded / 5xx / 429: the SDK backs off and retries; a run should ride through a busy minute.
+        _client = anthropic.Anthropic(timeout=30.0, max_retries=4)
     return _client
 
 

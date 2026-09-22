@@ -341,7 +341,11 @@ def select_field_text(context: dict[str, Any]) -> tuple[str, dict[str, Any]]:
 
 def resolve_field_text(context: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     if escalate.enabled():
-        value, meta = escalate.text_value(context)
+        try:
+            value, meta = escalate.text_value(context)
+        except Exception as error:  # noqa: BLE001  (overloaded / network): Jev still selects a span rather than stopping the run
+            print(f"  ! text model unavailable ({str(error)[:60]}); Jev selects from the goal", flush=True)
+            return select_field_text(context)
         if value is None:
             raise ValueError("The text model found no value for this field in the goal; nothing typed.")
         return value, meta
