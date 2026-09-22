@@ -315,7 +315,8 @@ def explain_move(fen: str, san: str, facts: dict[str, str], emphasis: str, optio
     schema = {"type": "object", "properties": {"explanation": {"type": "string"}}, "required": ["explanation"], "additionalProperties": False}
     data, meta = _ask(
         "You are a friendly chess coach narrating a live game for a learner. Explain in one or two short spoken sentences "
-        "(under 45 words, plain words, no notation symbols other than the move names given) why this move is being played. "
+        "(under 45 words) why this move is being played. Name moves in plain words exactly as given ('pawn takes pawn on e5', "
+        "'queen to d2'), never in notation. "
         "Use ONLY the verified facts and engine lines provided; the fact marked as emphasis is the main point. Do not invent "
         "threats, plans or evaluations that are not in the data. Mention the strongest alternative only if it was close.",
         json.dumps({"position_fen": fen, "move": san, "verified_facts": facts, "emphasis": emphasis,

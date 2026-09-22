@@ -861,10 +861,10 @@ button.go { font-size: 14px; min-height: 40px; padding: 8px 18px; }
 .tree-cands { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
 .cand { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: white; position: relative; overflow: hidden; animation: fadein 0.4s ease-out both; }
 .cand.chosen { border-color: var(--green); background: #eef6e5; }
-.cand .san { font: 600 14px ui-monospace, monospace; color: #172a20; }
+.cand .san { font-size: 13px; font-weight: 600; color: #172a20; }
 .cand .rank { float: right; font: 10px ui-monospace, monospace; color: #8d9085; }
 .cand .eval { font: 12px ui-monospace, monospace; color: #2f6b43; margin-left: 8px; }
-.cand .line { display: block; font-size: 10px; color: #8d9085; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cand .line { display: block; font-size: 10px; color: #8d9085; margin-top: 3px; line-height: 1.35; }
 .cand .jev { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 10px; color: #5b3f9e; }
 .cand .jev i { flex: 1; height: 4px; border-radius: 2px; background: #e6dff5; position: relative; }
 .cand .jev i::after { content: ""; position: absolute; inset: 0; width: var(--p); background: #7d5fc4; border-radius: 2px; transition: width 0.4s; }

@@ -52,6 +52,41 @@ READ = r"""(() => {
 PIECE_VALUES = {chess.PAWN: 100, chess.KNIGHT: 320, chess.BISHOP: 330, chess.ROOK: 500, chess.QUEEN: 900, chess.KING: 0}
 
 
+def describe_move(board: chess.Board, move: chess.Move) -> str:
+    """Beginner words for a move on this board: 'pawn takes pawn on e5', 'queen to d2', 'castles kingside'."""
+    piece = board.piece_at(move.from_square)
+    name = chess.piece_name(piece.piece_type) if piece else "piece"
+    to = chess.square_name(move.to_square)
+    if board.is_castling(move):
+        text = "castles " + ("kingside" if chess.square_file(move.to_square) > chess.square_file(move.from_square) else "queenside")
+    elif board.is_capture(move):
+        taken = board.piece_at(move.to_square)
+        taken_name = chess.piece_name(taken.piece_type) if taken else "pawn"
+        text = f"{name} takes {taken_name} on {to}"
+    else:
+        text = f"{name} to {to}"
+    if move.promotion:
+        text += f", promoting to a {chess.piece_name(move.promotion)}"
+    board.push(move)
+    if board.is_checkmate():
+        text += ", checkmate"
+    elif board.is_check():
+        text += ", check"
+    board.pop()
+    return text
+
+
+def describe_line(board: chess.Board, moves: list[chess.Move], limit: int = 4) -> str:
+    """'queen to d2, then they play pawn to h6, then bishop to h4' for an engine line."""
+    b = board.copy()
+    parts = []
+    for i, mv in enumerate(moves[:limit]):
+        who = "" if i == 0 else ("then they play " if i % 2 == 1 else "then ")
+        parts.append(who + describe_move(b, mv))
+        b.push(mv)
+    return ", ".join(parts)
+
+
 def _evaluate(session: str, expression: str) -> Any:
     r = cdp("Runtime.evaluate", session_id=session, expression=expression, returnByValue=True)
     if r.get("exceptionDetails"):
@@ -189,7 +224,8 @@ def candidates(board: chess.Board, think_s: float = 0.6, n: int = 5) -> list[dic
         cp = score.score(mate_score=100000)
         out.append({"move": pv[0], "san": board.san(pv[0]), "rank": i + 1, "cp": cp,
                     "eval": (f"mate in {score.mate()}" if score.is_mate() else f"{cp / 100:+.2f}"),
-                    "line": " ".join(board.variation_san(pv[:4]).split()[:6])})
+                    "line": " ".join(board.variation_san(pv[:4]).split()[:6]),
+                    "plain": describe_move(board, pv[0]), "plain_line": describe_line(board, pv[:4])})
     return out
 
 
@@ -203,7 +239,8 @@ def jev_choose(board: chess.Board, options: list[dict[str, Any]], style: str | N
     if not key or not options:
         return None
     ids = {f"m{o['rank']}": o for o in options}
-    criteria = {k: f"{o['san']} · engine rank #{o['rank']} · eval {o['eval']} · line {o['line']}" for k, o in ids.items()}
+    criteria = {k: f"{o.get('plain', o['san'])} ({o['san']}) · engine rank #{o['rank']} · eval {o['eval']} · then: {o.get('plain_line', o['line'])}"
+                for k, o in ids.items()}
     instructions = ("Choose the move to play from the engine's candidates. Default: the strongest move (engine rank #1, best eval). "
                     + (f"Style preference from the user: {style}. Deviate from #1 only when a candidate within 0.3 of the best eval fits "
                        "that style clearly better." if style else "Pick a lower-ranked move only if its eval is equal to the best."))
@@ -284,14 +321,18 @@ def teaching_line(board: chess.Board, move: chess.Move, options: list[dict[str, 
             meta.update(chosen_fact=chosen, probabilities=answer["probabilities"], usage=r.get("usage", {}))
         except Exception:  # noqa: BLE001
             pass
-    alt = f" {options[1]['san']} was the alternative at {options[1]['eval']}." if len(options) > 1 and option["rank"] == 1 else ""
-    spoken = f"{san}: {facts[chosen]}. Stockfish rates it {option['eval']}.{alt}"
+    plain = describe_move(board, move)
+    alt_plain = options[1].get("plain", options[1]["san"]) if len(options) > 1 else ""
+    alt = f" {alt_plain} was the alternative at {options[1]['eval']}." if len(options) > 1 and option["rank"] == 1 else ""
+    spoken = f"{plain[0].upper() + plain[1:]}: {facts[chosen]}. Stockfish rates it {option['eval']}.{alt}"
     if os.environ.get("CHESS_EXPLAIN", "llm") == "llm":
         try:
             from . import escalate
 
             if escalate.enabled():
-                text, emeta = escalate.explain_move(board.fen(), san, facts, chosen, option, options)
+                text, emeta = escalate.explain_move(board.fen(), f"{plain} ({san})", facts, chosen,
+                                                    {**option, "line": option.get("plain_line", option["line"])},
+                                                    [{**o, "san": f"{o.get('plain', o['san'])} ({o['san']})"} for o in options])
                 if text:
                     spoken = text
                     meta["explained_by"] = emeta.get("model")
@@ -316,6 +357,7 @@ def choose_move(board: chess.Board, think_s: float = 0.6, style: str | None = No
             "question": "Choose the move to play from the engine's candidates. Default: the strongest move (engine rank #1)."
                         + (f" Style: {style}." if style else ""),
             "candidates": [{"san": o["san"], "rank": o["rank"], "eval": o["eval"], "cp": o["cp"], "line": o["line"],
+                            "plain": o.get("plain", o["san"]), "plain_line": o.get("plain_line", o["line"]),
                             "p": meta["probabilities"].get(o["san"])} for o in options],
             "chosen": option["san"], "jev_confidence": meta.get("confidence"), "jev_ms": meta.get("latency_ms"),
         }
@@ -489,7 +531,8 @@ def play(browser: Any, max_moves: int = 200, on_step: Callable[[dict[str, Any]],
         if decision.get("candidates") and os.environ.get("CHESS_TEACH", "1") not in ("0", "false", "no"):
             option = next((o for o in decision["candidates"] if o["san"] == san), decision["candidates"][0])
             try:
-                narration, why = teaching_line(board, move, [{"san": o["san"], "eval": o["eval"], "cp": o["cp"], "rank": o["rank"], "line": o["line"]}
+                narration, why = teaching_line(board, move, [{"san": o["san"], "eval": o["eval"], "cp": o["cp"], "rank": o["rank"], "line": o["line"],
+                                                              "plain": o.get("plain"), "plain_line": o.get("plain_line")}
                                                              for o in decision["candidates"]], {**option, "move": move})
             except Exception as error:  # noqa: BLE001
                 narration = f"{san}. Stockfish rates it {option['eval']}."

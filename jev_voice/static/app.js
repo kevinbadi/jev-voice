@@ -236,12 +236,13 @@ function renderTree() {
   const sig = `${moves.length}:${idx}:${m.narration || ""}`;
   if (tree.dataset.sig === sig) return;  // unchanged: do not rebuild (that was the flicker)
   tree.dataset.sig = sig;
-  $("tree-move").textContent = `${idx + 1}. ${d.chosen}`;
+  const chosenCand = d.candidates.find((c) => c.san === d.chosen);
+  $("tree-move").textContent = `${idx + 1}. ${chosenCand?.plain ? chosenCand.plain.charAt(0).toUpperCase() + chosenCand.plain.slice(1) : d.chosen}`;
   $("tree-nav").innerHTML = `${idx + 1} / ${moves.length} <button type="button" id="tree-prev" ${idx === 0 ? "disabled" : ""}>‹</button><button type="button" id="tree-next" ${idx >= moves.length - 1 ? "disabled" : ""}>›</button>`;
   $("tree-prev").onclick = () => { treeIndex = idx - 1; renderTree(); };
   $("tree-next").onclick = () => { treeIndex = idx + 1 >= moves.length - 1 ? null : idx + 1; renderTree(); };
   $("tree-q").textContent = `Jev was asked: ${d.question}` + (d.jev_confidence != null ? ` · confidence ${percent(d.jev_confidence)} · ${d.jev_ms} ms` : "");
-  $("tree-cands").innerHTML = d.candidates.map((c) => `<div class="cand ${c.san === d.chosen ? "chosen" : ""}"><span class="rank">stockfish #${c.rank}</span><span class="san">${escape(c.san)}</span><span class="eval">${escape(c.eval)}</span><span class="line">${escape(c.line || "")}</span>${c.p != null ? `<div class="jev">jev ${percent(c.p)}<i style="--p:${c.p * 100}%"></i></div>` : ""}</div>`).join("");
+  $("tree-cands").innerHTML = d.candidates.map((c) => `<div class="cand ${c.san === d.chosen ? "chosen" : ""}"><span class="rank">stockfish #${c.rank} · ${escape(c.san)}</span><span class="san">${escape(c.plain ? c.plain.charAt(0).toUpperCase() + c.plain.slice(1) : c.san)}</span><span class="eval">${escape(c.eval)}</span><span class="line" title="${escape(c.line || "")}">${escape(c.plain_line || c.line || "")}</span>${c.p != null ? `<div class="jev">jev ${percent(c.p)}<i style="--p:${c.p * 100}%"></i></div>` : ""}</div>`).join("");
   const why = m.why || {};
   $("tree-say").innerHTML = m.narration ? `${escape(m.narration)}<small>${why.chosen_fact ? `Jev chose the fact “${escape(why.chosen_fact)}” from ${Object.keys(why.facts || {}).length} true facts computed in code` : ""}</small>` : "";
 }
