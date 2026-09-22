@@ -206,12 +206,49 @@ def our_color(snapshot: dict[str, Any]) -> chess.Color:
     return chess.BLACK if snapshot["flipped"] else chess.WHITE
 
 
+def placement(snapshot: dict[str, Any]) -> dict[int, chess.Piece]:
+    out: dict[int, chess.Piece] = {}
+    for p in snapshot["pieces"]:
+        color = chess.WHITE if p["piece"][0] == "w" else chess.BLACK
+        ptype = {"p": chess.PAWN, "n": chess.KNIGHT, "b": chess.BISHOP, "r": chess.ROOK, "q": chess.QUEEN, "k": chess.KING}[p["piece"][1]]
+        out[chess.square(p["file"] - 1, p["rank"] - 1)] = chess.Piece(ptype, color)
+    return out
+
+
+def sync(board: chess.Board, observed: dict[int, chess.Piece]) -> tuple[chess.Board, chess.Move | None]:
+    """Bring ``board`` up to the observed placement. If exactly one legal move explains the difference
+    (the opponent's move, or our own move registering), push it. Returns (board, move_pushed)."""
+    if board.piece_map() == observed:
+        return board, None
+    for move in list(board.legal_moves):
+        board.push(move)
+        if board.piece_map() == observed:
+            return board, move
+        board.pop()
+    # Two plies (we moved and the opponent already replied) or something unusual: rebuild from the placement.
+    rebuilt = chess.Board(None)
+    for sq, piece in observed.items():
+        rebuilt.set_piece_at(sq, piece)
+    rebuilt.turn = board.turn
+    rebuilt.set_castling_fen(board.castling_xfen() if board.piece_map() else "-")
+    return rebuilt, None
+
+
 def play(browser: Any, max_moves: int = 200, on_step: Callable[[dict[str, Any]], None] | None = None,
          stop: Callable[[], bool] | None = None, think_s: float = 0.6) -> dict[str, Any]:
-    """Loop: wait for our turn, choose, click, wait for the opponent. Returns a summary."""
+    """Loop: keep the position in code, infer the opponent's move from the board, choose, click, wait."""
     session = browser.session
     played: list[dict[str, Any]] = []
-    last_len = -1
+    snap = read(session)
+    if not snap or not snap["pieces"]:
+        return {"result": "no board", "moves": played}
+    us = our_color(snap)
+    board = position(snap)
+    observed = placement(snap)
+    if board.piece_map() != observed:
+        board, _ = sync(board, observed)
+    if not moves_of(snap) and board.piece_map() != chess.Board().piece_map():
+        board.turn = us  # joined mid-game without a move list: the caller says it is our move
     idle = 0.0
     while len(played) < max_moves:
         if stop and stop():
@@ -219,41 +256,31 @@ def play(browser: Any, max_moves: int = 200, on_step: Callable[[dict[str, Any]],
         snap = read(session)
         if not snap or not snap["pieces"]:
             time.sleep(0.5)
-            idle += 0.5
-            if idle > 20:
-                return {"result": "no board", "moves": played}
             continue
-        board = position(snap)
-        if snap["over"] or board.is_game_over():
-            return {"result": board.result(claim_draw=True) if board.is_game_over() else "game over", "moves": played,
-                    "final": board.fen()}
-        if board.turn != our_color(snap):
-            time.sleep(0.4)
-            idle += 0.4
-            if idle > 120:
+        if snap["over"]:
+            return {"result": "game over", "moves": played, "final": board.fen()}
+        board, pushed = sync(board, placement(snap))
+        if pushed is not None and board.turn == us:
+            print(f"  ♟ opponent: {board.peek()}", flush=True)
+        if board.is_game_over():
+            return {"result": board.result(claim_draw=True), "moves": played, "final": board.fen()}
+        if board.turn != us:
+            time.sleep(0.35)
+            idle += 0.35
+            if idle > 600:
                 return {"result": "opponent idle", "moves": played}
             continue
         idle = 0.0
-        sans = moves_of(snap)
-        if len(sans) == last_len:
-            time.sleep(0.4)  # our click has not registered yet; do not double-move
-            continue
         move, engine = choose_move(board, think_s)
         san = board.san(move)
         if not play_move(session, snap, move):
-            print(f"  ♟ {san} did not register on the board; re-reading", flush=True)
-            time.sleep(0.8)
+            print(f"  ♟ {san} did not register; re-reading", flush=True)
+            time.sleep(0.6)
             continue
-        played.append({"ply": len(sans) + 1, "san": san, "engine": engine, "fen": board.fen()})
-        last_len = len(sans) + 1
+        board.push(move)
+        played.append({"ply": board.ply(), "san": san, "engine": engine, "fen": board.fen()})
         if on_step:
             on_step({"action": {"label": f"{san} ({engine})", "kind": "chess", "key": None}, "operation": "MOVE", "text": None,
                      "step": len(played)})
         print(f"  ♟ {len(played)}. {san}  [{engine}]", flush=True)
-        deadline = time.monotonic() + 8
-        while time.monotonic() < deadline:  # wait until the board shows our move
-            time.sleep(0.3)
-            again = read(session)
-            if again and len(moves_of(again)) >= last_len:
-                break
     return {"result": "move limit", "moves": played}
