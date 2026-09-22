@@ -401,9 +401,11 @@ async function go() {
     clockStart();
     setPhase("exec", "opening the tab · planning");
     $("status").textContent = "Opening the tab and planning the checklist…";
+    const chessy = state?.workflows?.[$("workflow").value]?.mode === "chess" || /chess\.com/i.test($("url").value) || /\bchess\b/i.test($("goal").value);
+    if (chessy && !/chess\.com/i.test($("url").value)) $("url").value = "https://www.chess.com";
     await call("reset", { goal: $("goal").value, display: $("display").value, driver: $("driver").value, url: $("url").value });
     clockMark("ready");
-    await runJob("full", "Running the full flow…");
+    await runJob(chessy ? "chess" : "full", chessy ? "Getting to the board, then Stockfish + Jev play…" : "Running the full flow…");
   }, "Starting…");
 }
 $("go").addEventListener("click", go);

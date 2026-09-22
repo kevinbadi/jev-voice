@@ -186,7 +186,16 @@ CHESS_ELEMENTS = """(() => {
     out.push({node:id, role:'chess-piece', label:(m[1]==='w'?'white ':'black ')+names[m[2]]+' on '+file+rank, value:'',
       rect:{x:rr.x,y:rr.y,w:rr.width,h:rr.height}, guard:cache.guard(e)});
   }
-  return {pieces:out, board:{x:r.x,y:r.y,w:r.width,h:r.height,flipped}};
+  // Empty squares: the destination half of a click-click move.
+  const occupied=new Set(out.map(o=>o.label.split(' on ')[1]));
+  const squares=[];
+  for (let f=0; f<8; f++) for (let rk=0; rk<8; rk++) {
+    const name='abcdefgh'[f]+(rk+1);
+    if (occupied.has(name)) continue;
+    const ff=flipped?7-f:f, rr=flipped?7-rk:rk;
+    squares.push({square:name, x:r.x+size*(ff+0.5), y:r.y+size*(7-rr+0.5), w:size, h:size});
+  }
+  return {pieces:out, squares, board:{x:r.x,y:r.y,w:r.width,h:r.height,flipped}};
 })()"""
 
 # With a modal open, only its contents can receive input; everything behind it is withdrawn.
@@ -292,6 +301,14 @@ class ConfinedBrowser(Browser):
                 return
 
     def act(self, action: dict[str, Any], page: dict[str, Any], text: str | None = None) -> dict[str, Any]:
+        if action["kind"] == "board_square":
+            if not self.fresh(page):
+                raise StalePage("Page changed since this decision. Observe again.")
+            at = action["at"]
+            for event in ("mousePressed", "mouseReleased"):
+                self.call("Input.dispatchMouseEvent", type=event, x=at["x"], y=at["y"], button="left", clickCount=1)
+            self.after_input = action
+            return {"executed": action["id"]}
         if action["kind"] == "scroll_region":
             if not self.fresh(page):
                 raise StalePage("Page changed since this decision. Observe again.")
@@ -733,6 +750,14 @@ class WebAgent(uf_agent.Agent):
             page["actions"].append({"id": f"e{n}", "kind": "click", "node": t["node"], "role": t["role"], "label": t["label"], "value": "",
                                     "rect": t["rect"]})
             page["guards"][str(t["node"])] = t["guard"]
+        # Destination squares are offered once a piece has just been clicked (click-click move), keeping the head small.
+        last = self.state["history"][-1]["action"] if self.state["history"] else ""
+        piece_selected = bool(re.match(r"^(white|black) (pawn|knight|bishop|rook|queen|king) on [a-h][1-8]$", last or ""))
+        for sq in (found.get("squares") or []) if piece_selected else []:
+            page["actions"].append({"id": f"sq_{sq['square']}", "kind": "board_square", "square": sq["square"], "role": "chess-square",
+                                    "label": f"empty square {sq['square']} (move the selected piece here)", "value": "",
+                                    "rect": {"x": sq["x"] - sq["w"] / 2, "y": sq["y"] - sq["h"] / 2, "w": sq["w"], "h": sq["h"]},
+                                    "at": {"x": sq["x"], "y": sq["y"]}})
         page["chess_board"] = found.get("board")
 
     def _prune_behind_modal(self) -> None:
