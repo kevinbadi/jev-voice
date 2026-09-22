@@ -28,13 +28,18 @@ READ = r"""(() => {
     const m=/\b([wb][pnbrqk])\b/.exec(e.className), s=/square-(\d)(\d)/.exec(e.className);
     return m && s ? {piece:m[1], file:+s[1], rank:+s[2]} : null;}).filter(Boolean);
   const ml=document.querySelector('wc-simple-move-list, .move-list, [class*="move-list"]');
+  // chess.com renders piece letters as figurine icons; rebuild SAN per move node so 'Nf3' is not read as 'f3'.
+  const nodes=ml ? [...ml.querySelectorAll('[data-ply], .node, [class*="node"]')].filter(n=>!n.querySelector('[data-ply], .node')) : [];
+  const sans=nodes.map(n=>{const ic=n.querySelector('[class*="icon-font-chess"], [data-figurine]'); const cls=(ic&&(ic.className+' '+(ic.getAttribute('data-figurine')||'')))||'';
+    const letter=/king/i.test(cls)?'K':/queen/i.test(cls)?'Q':/rook/i.test(cls)?'R':/bishop/i.test(cls)?'B':/knight/i.test(cls)?'N':'';
+    return letter+(n.innerText||'').replace(/\s+/g,'').trim();}).filter(Boolean);
   const overEl=document.querySelector('[class*="header-title"], [class*="game-over"], .modal');
   const over=!!document.querySelector('.game-over-modal, [class*="game-over"], .game-result, [class*="game-review"]') ||
              /checkmate|game over|you won|you lost|draw by|resigned|time out/i.test((overEl&&overEl.innerText)||'');
   const promo=[...document.querySelectorAll('.promotion-piece, [class*="promotion"] .piece')].filter(e=>e.checkVisibility()).map(e=>{
     const rr=e.getBoundingClientRect(); const m=/\b([wb][nbrq])\b/.exec(e.className); return {piece:m?m[1]:'', x:rr.x+rr.width/2, y:rr.y+rr.height/2};});
   return {rect:{x:r.x,y:r.y,w:r.width,h:r.height}, flipped:b.classList.contains('flipped'), pieces,
-          moves:(ml&&ml.innerText||'').replace(/\s+/g,' ').trim(), over, promo, url:location.href};
+          moves:(ml&&ml.innerText||'').replace(/\s+/g,' ').trim(), sans, over, promo, url:location.href};
 })()"""
 
 PIECE_VALUES = {chess.PAWN: 100, chess.KNIGHT: 320, chess.BISHOP: 330, chess.ROOK: 500, chess.QUEEN: 900, chess.KING: 0}
@@ -64,10 +69,16 @@ def parse_moves(text: str) -> list[str]:
     return tokens
 
 
+def moves_of(snapshot: dict[str, Any]) -> list[str]:
+    """SAN list: from the move nodes (figurines resolved) when available, else parsed from the text."""
+    sans = [t for t in (snapshot.get("sans") or []) if re.fullmatch(r"(O-O(-O)?|[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](=[QRBN])?)[+#]?", t)]
+    return sans or parse_moves(snapshot.get("moves", ""))
+
+
 def position(snapshot: dict[str, Any]) -> chess.Board:
     """Exact position by replaying the move list; falls back to piece placement if the list is unusable."""
     board = chess.Board()
-    sans = parse_moves(snapshot.get("moves", ""))
+    sans = moves_of(snapshot)
     try:
         for san in sans:
             board.push_san(san)
@@ -159,12 +170,26 @@ def _click(session: str, x: float, y: float) -> None:
         cdp("Input.dispatchMouseEvent", session_id=session, type=event, x=x, y=y, button="left", clickCount=1)
 
 
-def play_move(session: str, snapshot: dict[str, Any], move: chess.Move) -> None:
-    x, y = square_center(snapshot, move.from_square)
-    _click(session, x, y)
-    time.sleep(0.25)
-    x, y = square_center(snapshot, move.to_square)
-    _click(session, x, y)
+def piece_at(snapshot: dict[str, Any], square: int) -> str | None:
+    f, rk = chess.square_file(square) + 1, chess.square_rank(square) + 1
+    return next((p["piece"] for p in snapshot["pieces"] if p["file"] == f and p["rank"] == rk), None)
+
+
+def play_move(session: str, snapshot: dict[str, Any], move: chess.Move) -> bool:
+    """Click the piece, then click the destination square. Returns True once the board shows the piece there."""
+    x0, y0 = square_center(snapshot, move.from_square)
+    x1, y1 = square_center(snapshot, move.to_square)
+    moving = piece_at(snapshot, move.from_square)
+    _click(session, x0, y0)
+    time.sleep(0.45)
+    _click(session, x1, y1)
+    for _ in range(10):
+        time.sleep(0.2)
+        after = read(session) or {}
+        if after.get("pieces") and piece_at(after, move.to_square) == moving and piece_at(after, move.from_square) is None:
+            break
+    else:
+        return False
     if move.promotion:
         time.sleep(0.6)
         after = read(session) or {}
@@ -173,6 +198,7 @@ def play_move(session: str, snapshot: dict[str, Any], move: chess.Move) -> None:
             if p["piece"].endswith(want):
                 _click(session, p["x"], p["y"])
                 break
+    return True
 
 
 def our_color(snapshot: dict[str, Any]) -> chess.Color:
@@ -207,13 +233,16 @@ def play(browser: Any, max_moves: int = 200, on_step: Callable[[dict[str, Any]],
                 return {"result": "opponent idle", "moves": played}
             continue
         idle = 0.0
-        sans = parse_moves(snap["moves"])
+        sans = moves_of(snap)
         if len(sans) == last_len:
             time.sleep(0.4)  # our click has not registered yet; do not double-move
             continue
         move, engine = choose_move(board, think_s)
         san = board.san(move)
-        play_move(session, snap, move)
+        if not play_move(session, snap, move):
+            print(f"  ♟ {san} did not register on the board; re-reading", flush=True)
+            time.sleep(0.8)
+            continue
         played.append({"ply": len(sans) + 1, "san": san, "engine": engine, "fen": board.fen()})
         last_len = len(sans) + 1
         if on_step:
@@ -224,6 +253,6 @@ def play(browser: Any, max_moves: int = 200, on_step: Callable[[dict[str, Any]],
         while time.monotonic() < deadline:  # wait until the board shows our move
             time.sleep(0.3)
             again = read(session)
-            if again and len(parse_moves(again["moves"])) >= last_len:
+            if again and len(moves_of(again)) >= last_len:
                 break
     return {"result": "move limit", "moves": played}
