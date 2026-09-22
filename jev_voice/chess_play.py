@@ -261,7 +261,13 @@ def play(browser: Any, max_moves: int = 200, on_step: Callable[[dict[str, Any]],
             return {"result": "game over", "moves": played, "final": board.fen()}
         board, pushed = sync(board, placement(snap))
         if pushed is not None and board.turn == us:
-            print(f"  ♟ opponent: {board.peek()}", flush=True)
+            board.pop()
+            their_san = board.san(pushed)
+            board.push(pushed)
+            print(f"  ♟ opponent: {their_san}", flush=True)
+            if on_step:
+                on_step({"action": {"label": f"…{their_san}", "kind": "chess_opponent", "key": None}, "operation": "OPPONENT", "text": None,
+                         "step": len(played), "fen": board.fen()})
         if board.is_game_over():
             return {"result": board.result(claim_draw=True), "moves": played, "final": board.fen()}
         if board.turn != us:
@@ -281,6 +287,6 @@ def play(browser: Any, max_moves: int = 200, on_step: Callable[[dict[str, Any]],
         played.append({"ply": board.ply(), "san": san, "engine": engine, "fen": board.fen()})
         if on_step:
             on_step({"action": {"label": f"{san} ({engine})", "kind": "chess", "key": None}, "operation": "MOVE", "text": None,
-                     "step": len(played)})
+                     "step": len(played), "fen": board.fen()})
         print(f"  ♟ {len(played)}. {san}  [{engine}]", flush=True)
     return {"result": "move limit", "moves": played}

@@ -78,9 +78,21 @@ def _job(mode: str, message: str | None) -> None:
             from . import chess_play
 
             JOB["phase"] = "chess"
-            summary = chess_play.play(agent.browser, on_step=lambda step: agent.state.setdefault("chess_moves", []).append(step["action"]["label"]),
-                                      stop=lambda: JOB["stop"])
+
+            def chess_step(step: dict[str, Any]) -> None:
+                agent.state.setdefault("chess_moves", []).append(
+                    {"label": step["action"]["label"], "who": "us" if step["operation"] == "MOVE" else "them", "fen": step.get("fen")})
+                try:
+                    agent.state["page"]["screenshot"] = agent.browser.call("Page.captureScreenshot", format="jpeg", quality=60)["data"]
+                except Exception:  # noqa: BLE001
+                    pass
+
+            summary = chess_play.play(agent.browser, on_step=chess_step, stop=lambda: JOB["stop"], think_s=0.8)
             agent.state["chess_result"] = summary["result"]
+            try:
+                agent.state["page"]["screenshot"] = agent.browser.call("Page.captureScreenshot", format="jpeg", quality=60)["data"]
+            except Exception:  # noqa: BLE001
+                pass
         if mode in ("full", "recommend") and not JOB["stop"] and (mode == "recommend" or agent.state["status"] == "done"):
             JOB["phase"] = "pick"
             with LOCK:

@@ -846,3 +846,6 @@ button.mini { min-height: 24px; padding: 2px 8px; font-size: 11px; }
 #workflow { max-width: 260px; }
 
 button.go { font-size: 14px; min-height: 40px; padding: 8px 18px; }
+
+.hero-step.them { color: #6a766c; }
+.hero-step.them span { background: #b9c2b4; }
