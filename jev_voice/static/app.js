@@ -42,6 +42,7 @@ async function call(name, body = {}) {
   const data = await response.json();
   if (!response.ok) throw Error(data.error || "Request failed");
   state = data;
+  if (data.workflows) renderWorkflows();
   const d = data.decision || data.decisions?.at(-1);
   if (name === "tick" || name === "predict" || name === "act") {
     if (d?.escalated) setPhase("llm", `${d.escalated.model.replace("claude-", "").replace("-4-5", "").replace("-5-1", "")} chose ${d.operation} · ${d.escalated.latency_ms} ms`);
@@ -118,6 +119,48 @@ function renderList(container, items, keyOf, htmlOf) {
   });
   while (container.children.length > items.length) container.lastElementChild.remove();
 }
+function renderWorkflows() {
+  const sel = $("workflow");
+  const names = Object.keys(state?.workflows || {});
+  const current = sel.value;
+  sel.innerHTML = '<option value="">— custom —</option>' + names.map((n) => `<option value="${escape(n)}">${escape(n)}</option>`).join("");
+  if (names.includes(current)) sel.value = current;
+  $("wf-delete").disabled = !sel.value;
+}
+function applyWorkflow(name) {
+  const w = state?.workflows?.[name];
+  if (!w) return;
+  if (w.goal) $("goal").value = w.goal;
+  if (w.url) $("url").value = w.url;
+  if (w.message != null) $("message").value = w.message;
+  if (w.sellers) $("sellers").value = w.sellers;
+  if (w.driver) $("driver").value = w.driver;
+  if (w.display) $("display").value = w.display;
+}
+$("workflow").addEventListener("change", () => {
+  applyWorkflow($("workflow").value);
+  $("wf-delete").disabled = !$("workflow").value;
+  try { localStorage.setItem("jev-workflow", $("workflow").value); } catch {}
+});
+$("wf-save").addEventListener("click", () =>
+  perform(async () => {
+    const name = prompt("Save this goal, start URL, message and seller count as:", $("workflow").value || "");
+    if (!name) return;
+    await call("workflow_save", { name, goal: $("goal").value, url: $("url").value, message: $("message").value,
+      sellers: Number($("sellers").value), driver: $("driver").value, display: $("display").value });
+    renderWorkflows();
+    $("workflow").value = name;
+    $("wf-delete").disabled = false;
+  }, "Saving workflow…"),
+);
+$("wf-delete").addEventListener("click", () =>
+  perform(async () => {
+    const name = $("workflow").value;
+    if (!name || !confirm(`Delete workflow “${name}”?`)) return;
+    await call("workflow_delete", { name });
+    renderWorkflows();
+  }, "Deleting workflow…"),
+);
 function controls() {
   $("start").disabled = busy;
   $("preview").disabled = busy;
@@ -403,6 +446,12 @@ fetch("/api/state")
     if (s.display) $("display").value = s.display;
     if (s.driver) $("driver").value = s.driver;
     if (s.start_url) $("url").value = s.start_url;
+    renderWorkflows();
+    let remembered = null;
+    try { remembered = localStorage.getItem("jev-workflow"); } catch {}
+    const first = Object.keys(s.workflows || {})[0];
+    const pick = remembered && s.workflows?.[remembered] ? remembered : first;
+    if (pick) { $("workflow").value = pick; applyWorkflow(pick); $("wf-delete").disabled = false; }
     render();
   })
   .catch(() => {

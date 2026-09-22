@@ -25,6 +25,11 @@
       <form id="task-form">
         <div class="task-label">
           <label for="goal">Give it a task</label>
+          <label>Workflow
+            <select id="workflow" name="workflow" aria-label="Saved workflow"><option value="">— custom —</option></select>
+            <button type="button" id="wf-save" class="mini">Save as…</button>
+            <button type="button" id="wf-delete" class="mini" disabled>Delete</button>
+          </label>
           <label>Driver
             <select id="driver" name="driver" aria-label="Driver">
               <option value="browser">Chrome via CDP (jev-ultrafast)</option>

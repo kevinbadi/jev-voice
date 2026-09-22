@@ -34,6 +34,19 @@ LOCK = threading.Lock()
 AGENT: Agent | WebAgent | None = None
 JOB: dict[str, Any] = {"running": False, "mode": None, "phase": None, "error": None, "started_at": None, "stop": False}
 MAX_SECONDS = float(os.environ.get("TASK_MAX_SECONDS", "900"))
+WORKFLOWS = Path("runs/workflows.json")
+
+
+def load_workflows() -> dict[str, Any]:
+    try:
+        return json.loads(WORKFLOWS.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def save_workflows(data: dict[str, Any]) -> None:
+    WORKFLOWS.parent.mkdir(exist_ok=True)
+    WORKFLOWS.write_text(json.dumps(data, indent=2))
 DESKTOP: Desktop | None = None
 DISPLAY: str = os.environ.get("AGENT_DISPLAY", "main") or "main"
 DRIVER: str = os.environ.get("TASK_DRIVER", "browser") or "browser"
@@ -96,6 +109,7 @@ def response_state() -> dict[str, Any]:
         "view": (DESKTOP.view() if DESKTOP else None),
         "costs": run_costs(state.get("decisions") or [], state.get("text_calls") or []),
         "job": {k: v for k, v in JOB.items() if k != "stop"},
+        "workflows": load_workflows(),
         "max_seconds": MAX_SECONDS,
     }
 
@@ -163,6 +177,17 @@ def command(name: str, body: dict[str, Any]) -> dict[str, Any]:
         results = AGENT.message_sellers(text, sellers)
         AGENT.state["message_result"] = {"status": "done" if results and all(r["status"] == "done" for r in results) else "partial",
                                          "text": text, "sent": [r for r in results if r["status"] == "done"], "results": results}
+    elif name == "workflow_save":
+        wf_name = (body.get("name") or "").strip()
+        if not wf_name or len(wf_name) > 80:
+            raise ValueError("Give the workflow a name (1–80 characters)")
+        data = load_workflows()
+        data[wf_name] = {k: body.get(k) for k in ("goal", "url", "message", "sellers", "driver", "display")}
+        save_workflows(data)
+    elif name == "workflow_delete":
+        data = load_workflows()
+        data.pop((body.get("name") or "").strip(), None)
+        save_workflows(data)
     elif name == "run":
         if AGENT is None:
             raise ValueError("Start a task first")
@@ -229,7 +254,7 @@ class Handler(BaseHTTPRequestHandler):
         ):
             return self.send(403, json.dumps({"error": "Local inspector requests only"}))
         name = self.path.removeprefix("/api/")
-        if name in ("run", "stop", "preview"):
+        if name in ("run", "stop", "preview", "workflow_save", "workflow_delete"):
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 body = json.loads(self.rfile.read(length)) if 0 < length < 8192 else {}
