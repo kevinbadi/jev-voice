@@ -123,6 +123,26 @@ an unchanged page reuses the decision for free; three rejections of one choice s
 Without `TEXT_MODEL_API_KEY`, TYPE_TEXT values are Jev choices over spans cut from the goal
 (sentences, comma clauses, labelled values like "postal code M5V 3L9", numbers as "$15,000"/"15000").
 
+### Chess on chess.com (Stockfish proposes, Jev chooses, code moves)
+
+```sh
+uv run jev-agent --chess --url https://www.chess.com --goal "On chess.com, start a game and stop when a live board is on screen."
+```
+
+Jev gets the tab to a live game (Play, matchmaking, or resuming a game already open). From there, each turn:
+code reads the board from the DOM and keeps the exact position with python-chess (the opponent's move is
+inferred from the changed squares); Stockfish returns its top five moves with evaluations; Jev selects one
+(strongest by default, `CHESS_STYLE` to bias it); code clicks the piece and the square and confirms the board.
+About 1.3 s per move. It has won rated 10-minute games by checkmate.
+
+**Teaching mode** (on by default): true facts about the chosen move are computed in code, Jev picks the one worth
+stressing, Haiku writes a coach's sentence from those facts only, and the local open-source Kokoro voice speaks
+it. The move waits for the narration to finish (and at least `CHESS_MOVE_DELAY` seconds). The inspector shows the
+decision tree under the live feed: every candidate in plain words ("pawn takes pawn on e5"), its rank, eval,
+line and Jev's probability, plus the narration. `CHESS_VOICE=0` mutes; `CHESS_EXPLAIN=template` skips the LLM.
+
+Engine play in rated games is against chess.com's fair-play rules; use bots or unrated games for an account you care about.
+
 ### Inspector
 
 ```sh
@@ -210,6 +230,8 @@ jev_voice/
   modes.py    browser-use modes page (ultrafast / jev + guards / agent); static_modes/ holds it
   web.py      browser driver: jev-ultrafast Agent/Browser on a confined Chrome window + guards
   recommend.py listing harvest → Jev pick → verified reason → open the listing
+  chess_play.py board reader, Stockfish candidates → Jev choice, click-click moves, teaching lines
+  escalate.py  Haiku/Fable escalation: plan, text values, tie-break, verify, progress, move explanations
   costs.py    Jev / text-helper cost accounting
   actions.py  macOS execution (open, keystrokes, scroll, volume, media keys…)
   audio.py    mic + VAD endpointing
