@@ -222,7 +222,11 @@ def filter_constraints(goal: str, listings: list[dict[str, Any]]) -> list[dict[s
         r"|(20\d{2}|19\d{2})\s*(?:or older|and older)",
         goal, re.I,
     )
-    max_price = re.search(r"(?:under|below|less than|max(?:imum)?(?: price)?(?: of)?(?:\s*to)?|up to)\s*\$?\s*([\d,]{3,})", goal, re.I)
+    max_price = re.search(
+        r"(?:price\s*max(?:imum)?(?:\s*(?:to|of|:))?|max(?:imum)?\s*price(?:\s*(?:to|of|:))?|priced\s+under|under|below|less than|up to)"
+        r"\s*\$?\s*([\d,]{3,})(?!\s*km)",
+        goal, re.I,
+    )
     if min_year:
         y = int(min_year.group(1) or min_year.group(2))
         keep = [x for x in keep if x.get("year") is None or x["year"] >= y]
