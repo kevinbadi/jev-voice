@@ -488,4 +488,4 @@ def test_chess_position_replays_figurine_moves_and_detects_turn():
     x, y = c.square_center({"rect": {"x": 229, "y": 66, "w": 744, "h": 744}, "flipped": False}, c.chess.E2)
     assert (round(x), round(y)) == (648, 670)
     xf, yf = c.square_center({"rect": {"x": 229, "y": 66, "w": 744, "h": 744}, "flipped": True}, c.chess.E2)
-    assert (round(xf), round(yf)) == (554, 205)
+    assert (round(xf), round(yf)) == (554, 206)
