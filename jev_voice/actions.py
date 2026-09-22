@@ -38,11 +38,34 @@ def installed_apps() -> list[str]:
     return sorted(names, key=str.lower)
 
 
-def frontmost_app() -> str:
+def frontmost_pid() -> int:
+    """Live focused application. NSWorkspace.frontmostApplication() goes stale in a process
+    without a running main loop; the AX system-wide element is always current."""
+    try:
+        import ApplicationServices as AS  # type: ignore
+
+        err, app = AS.AXUIElementCopyAttributeValue(AS.AXUIElementCreateSystemWide(), "AXFocusedApplication", None)
+        if err == 0 and app is not None:
+            err, pid = AS.AXUIElementGetPid(app, None)
+            if err == 0:
+                return int(pid)
+    except Exception:
+        pass
     try:
         from AppKit import NSWorkspace  # type: ignore
 
         app = NSWorkspace.sharedWorkspace().frontmostApplication()
+        return int(app.processIdentifier()) if app else 0
+    except Exception:
+        return 0
+
+
+def frontmost_app() -> str:
+    try:
+        from AppKit import NSRunningApplication  # type: ignore
+
+        pid = frontmost_pid()
+        app = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid) if pid else None
         return str(app.localizedName()) if app else ""
     except Exception:
         return ""
@@ -52,16 +75,53 @@ def open_app(name: str) -> None:
     subprocess.Popen(["open", "-a", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def _activate(name: str) -> bool:
+    """Bring a running app to the front. `open -a`, AppleScript `activate` and NSRunningApplication
+    are all deferred by macOS while the user is actively typing or clicking in another app.
+    The Carbon SetFrontProcessWithOptions call is honoured immediately (it is what window
+    managers use); AXFrontmost is the fallback."""
+    try:
+        import ctypes
+
+        from AppKit import NSWorkspace  # type: ignore
+
+        pid = next((int(a.processIdentifier()) for a in NSWorkspace.sharedWorkspace().runningApplications()
+                    if str(a.localizedName()).lower() == name.lower()), None)
+        if pid is None:
+            return False
+        try:
+            lib = ctypes.CDLL("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")
+
+            class PSN(ctypes.Structure):
+                _fields_ = [("hi", ctypes.c_uint32), ("lo", ctypes.c_uint32)]
+
+            psn = PSN()
+            if lib.GetProcessForPID(ctypes.c_int(pid), ctypes.byref(psn)) == 0:
+                if lib.SetFrontProcessWithOptions(ctypes.byref(psn), ctypes.c_uint32(1)) == 0:  # front window only
+                    return True
+        except Exception:
+            pass
+        import ApplicationServices as AS  # type: ignore
+
+        return AS.AXUIElementSetAttributeValue(AS.AXUIElementCreateApplication(pid), "AXFrontmost", True) == 0
+    except Exception:
+        return False
+
+
 def focus_app(name: str, timeout: float = 2.0) -> bool:
     """Open/activate an app and wait until it is frontmost (so keystrokes land in it)."""
     if frontmost_app().lower() == name.lower():
         return True
     open_app(name)
     t0 = time.time()
+    last_ax = 0.0
     while time.time() - t0 < timeout:
         if frontmost_app().lower() == name.lower():
             time.sleep(0.15)  # let the window take key focus
             return True
+        if time.time() - last_ax > 0.25:
+            _activate(name)
+            last_ax = time.time()
         time.sleep(0.05)
     return False
 
@@ -94,6 +154,7 @@ SITES: dict[str, str] = {
     "linkedin": "https://www.linkedin.com",
     "instagram": "https://www.instagram.com",
     "facebook": "https://www.facebook.com",
+    "facebook_marketplace": "https://www.facebook.com/marketplace",
     "wikipedia": "https://en.wikipedia.org",
     "hacker_news": "https://news.ycombinator.com",
     "twitch": "https://www.twitch.tv",

@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="demo-token" content="__TOKEN__" />
+    <title>Jev Voice · Inspector</title>
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <a href="/" aria-label="Homepage" class="brand">jev<span>voice</span> <i>×</i> TypeSafe</a>
+      <div class="local"><span class="dot"></span> Desktop agent · local</div>
+    </header>
+    <main>
+      <section class="intro">
+        <div>
+          <p class="eyebrow">A MAC THAT CHOOSES</p>
+          <h1>Every screen is a set of possibilities.</h1>
+          <p>Jev picks the next operation and its target from the Accessibility tree. Text is selected or written only for TYPE_TEXT.</p>
+        </div>
+        <div class="model-tag" id="model-tag">jev-latest <span>+ text helper</span></div>
+      </section>
+      <form id="task-form">
+        <div class="task-label">
+          <label for="goal">Give it a task</label>
+          <label>Driver
+            <select id="driver" name="driver" aria-label="Driver">
+              <option value="browser">Chrome via CDP (jev-ultrafast)</option>
+              <option value="desktop">Desktop via Accessibility (experimental)</option>
+            </select>
+          </label>
+          <label id="url-label">Start at <input type="text" id="url" name="url" value="https://www.facebook.com/marketplace/category/vehicles" /></label>
+          <label>Monitor
+            <select id="display" name="display" aria-label="Monitor">
+              <option value="main">main display</option>
+              <option value="0">display 0 (leftmost in macOS arrangement)</option>
+              <option value="1">display 1</option>
+              <option value="left">left (macOS arrangement)</option>
+              <option value="right">right (macOS arrangement)</option>
+              <option value="all">all monitors</option>
+            </select>
+          </label>
+        </div>
+        <div class="task-row">
+          <textarea id="goal" name="goal" rows="4">On Facebook Marketplace vehicles, set the location to Toronto, Ontario with a search radius of 100 km, then set Make to Mercedes-Benz, Model to CLA, minimum year 2020 and maximum price $15,000. Make sure the results reflect those filters. Stop when matching listings are visible.</textarea>
+          <div class="task-buttons">
+            <button type="button" id="preview">Preview screen</button>
+            <button type="submit" id="start" class="primary">Start task <span>↗</span></button>
+          </div>
+        </div>
+      </form>
+      <div class="toolbar">
+        <div class="status"><span class="dot" id="status-dot"></span><span id="status" role="status">Ready</span></div>
+        <div class="controls">
+          <label class="overlay-control"><input name="pace" id="pace" type="checkbox" /> Slow motion</label>
+          <label class="overlay-control"><input name="overlays" id="overlays" type="checkbox" checked /> Targets</label>
+          <button type="button" id="choose" disabled>Choose next</button>
+          <button type="button" id="execute" disabled>Execute choice</button>
+          <button type="button" id="auto" disabled>Run automatically</button>
+          <button type="button" id="stop" hidden>Pause</button>
+          <button type="button" id="recommend" disabled>Recommend ★</button>
+          <input type="text" id="message" placeholder="Message to the seller" value="Hi! Is this still available?" />
+          <label class="overlay-control">sellers <input type="number" id="sellers" min="1" max="10" value="1" /></label>
+          <button type="button" id="send" disabled>Message seller ✉</button>
+          <button type="button" id="full" class="primary" disabled>Run full flow ▶▶</button>
+        </div>
+      </div>
+      <div id="error" role="alert" hidden></div>
+      <section class="workspace">
+        <div class="browser-panel">
+          <div class="browser-bar">
+            <div class="traffic"><b></b><b></b><b></b></div>
+            <span id="url-bar">Confined monitor</span><span class="live">LIVE</span>
+          </div>
+          <div class="viewport" id="viewport">
+            <div class="empty" id="empty">
+              <p class="empty-symbol">[ ⌘ ]</p>
+              <h2>Watch the decision happen.</h2>
+              <p>Start a task to see the monitor the agent works on,<br />its indexed controls, and Jev's choice.</p>
+            </div>
+            <img id="screenshot" alt="Live screenshot of the confined monitor" hidden />
+            <div id="targets"></div>
+          </div>
+          <div class="browser-footer">
+            <span id="page-title">No app observed</span><span id="pipeline">DOM snapshot → typed choices → CDP</span>
+          </div>
+        </div>
+        <aside>
+          <div class="hero">
+            <p class="hero-brand">JEV ULTRAFAST <span class="hero-phase" id="phase"></span></p>
+            <p class="hero-seconds" id="seconds">00.00</p>
+            <div class="hero-bar"><i id="bar"></i></div>
+            <p class="hero-caption">SECONDS ELAPSED <span id="phase-times"></span></p>
+            <div class="hero-steps" id="hero-steps"></div>
+            <div class="hero-card" id="hero-card">
+              <b id="hero-title">Choose. Act. Repeat.</b>
+              <span id="hero-sub">One Jev request per step</span>
+            </div>
+            <div class="hero-rec" id="hero-rec" hidden>
+              <span>RECOMMENDATION</span>
+              <b id="rec-title"></b>
+              <em id="rec-reason"></em>
+              <small id="rec-meta"></small>
+              <small id="msg-meta" hidden></small>
+              <div id="rec-ranked"></div>
+            </div>
+            <div class="hero-esc" id="hero-esc" hidden></div>
+            <div class="hero-rules" id="hero-rules" hidden></div>
+            <p class="hero-latency"><strong id="median">—</strong> median decision latency</p>
+            <div class="hero-costs">
+              <div><strong id="cost-total">$0</strong><span>run cost</span></div>
+              <div><strong id="cost-jev">0</strong><span>Jev input tokens</span></div>
+              <div><strong id="cost-text">—</strong><span>LLM escalations</span></div>
+            </div>
+          </div>
+          <div class="aside-header">
+            <div>
+              <p class="eyebrow">NEXT ACTION</p>
+              <h2 id="choice-title">Waiting for a screen</h2>
+            </div>
+            <span id="action-count">0 elements</span>
+          </div>
+          <div class="metrics">
+            <div><span>Decision time</span><strong id="latency">—</strong></div>
+            <div><span>Target confidence</span><strong id="confidence">—</strong></div>
+            <div><span>Operation</span><strong id="completion">—</strong></div>
+            <div class="cost-row"><span>This decision</span><strong id="cost-step">—</strong></div>
+          </div>
+          <div id="operation-choices" class="operation-choices"></div>
+          <div id="text-value" class="text-value" hidden></div>
+          <p class="distribution-label">Indexed elements <span id="ranking-note">Choose next to rank</span></p>
+          <div id="choices" class="choices"><p class="muted">Available actions will appear here.</p></div>
+          <p class="aside-note">Operation and target are separate choices in one request.<br />Only the head matching the operation can execute.</p>
+        </aside>
+      </section>
+      <section class="trace">
+        <div class="trace-heading">
+          <h2>Decision trail <span id="step-count">0 actions</span></h2>
+          <button type="button" id="download" disabled>Export trace ↓</button>
+        </div>
+        <div id="history"><p class="muted">Each executed action leaves an observed result.</p></div>
+      </section>
+      <details>
+        <summary>What the model sees</summary>
+        <pre id="model-state">Start a task to inspect its structured state.</pre>
+      </details>
+      <footer>
+        <span>Jev Voice × TypeSafe · desktop port of jev-ultrafast</span><span id="helper">Text helper loading</span>
+      </footer>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

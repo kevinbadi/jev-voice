@@ -29,6 +29,7 @@ ACTIONS: dict[str, str] = {
     "screenshot": "Take a screenshot of the screen",
     "open_folder": "Open a folder like Downloads, Desktop, Documents, or the home folder in Finder",
     "system": "System-level action: lock the screen, put the display to sleep, show the desktop, toggle dark mode, empty the trash",
+    "task": "A multi-step task that needs looking at the screen and doing several things inside an app or website: fill in a form, find and click something specific, reply to a message, search a site and open a result, change a setting, compose and send an email (for example 'reply to the last email from Sam saying yes', 'find the cheapest flight to London on google flights', 'turn on dark mode in the settings app')",
     "stop": "Tell the assistant to stop listening, go to sleep, or exit",
     "none": "Not a command for the computer: conversation, thinking aloud, background chatter, or unintelligible",
 }
@@ -187,6 +188,16 @@ class Brain:
                 "type": "noul",
                 "instructions": "Is `utterance` an instruction spoken to a voice assistant that controls this computer (open, type, search, scroll, press, play, close, and so on), rather than conversation with another person, a phone call, reading aloud, or thinking out loud?",
                 "criteria": {"true": "A direct instruction for the computer to do something now", "false": "Not directed at the computer, or not an instruction"},
+            },
+            "recommend": {
+                "type": "noul",
+                "instructions": "Does the user want the assistant to pick, choose, or recommend one specific result for them (for example 'recommend me a car', 'which one should I get', 'find me the best deal', 'pick the cheapest')?",
+                "criteria": {"true": "They want one result chosen or recommended", "false": "They only want to find, open, or see results"},
+            },
+            "message_seller": {
+                "type": "noul",
+                "instructions": "Does the user want the assistant to contact, message, DM, or reach out to the seller or poster of the result it finds (for example 'and message the seller', 'send them a dm', 'ask if it is available')?",
+                "criteria": {"true": "They want a message sent to the seller", "false": "No message is requested"},
             },
             "compound": {
                 "type": "noul",
@@ -365,6 +376,8 @@ class Brain:
             if app != "none":
                 args["in_app"] = app
         args["compound"] = float(ans["compound"]["noul"]) > config.YES
+        args["recommend"] = float(ans["recommend"]["noul"]) > config.YES
+        args["message_seller"] = float(ans["message_seller"]["noul"]) > config.YES
         args["addressed"] = round(float(ans["addressed"]["noul"]), 2)
         return Plan(utterance, action, conf, args, ans, ms)
 

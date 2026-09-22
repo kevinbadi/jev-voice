@@ -6,7 +6,9 @@ license = "MIT"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "anthropic>=1.7.0",
     "httpx>=0.28.1",
+    "jev-ultrafast",
     "numpy>=2.5.3",
     "pyobjc-framework-applicationservices>=12.2.2",
     "pyobjc-framework-cocoa>=12.2.2",
@@ -16,6 +18,8 @@ dependencies = [
 
 [project.scripts]
 jev-voice = "jev_voice.main:main"
+jev-agent = "jev_voice.agent:main"
+jev-inspect = "jev_voice.inspector:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -23,3 +27,23 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["jev_voice"]
+include = ["jev_voice/static/*"]
+
+[dependency-groups]
+dev = ["pytest>=8.4,<9", "ruff>=0.14,<1"]
+
+[tool.ruff]
+line-length = 160
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+# Pre-agent modules keep their compact style.
+"jev_voice/{actions,audio,brain,main,overlay}.py" = ["E402", "E501", "E701", "E702", "F401", "I001"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.uv.sources]
+jev-ultrafast = { git = "https://github.com/browser-use/jev-ultrafast.git" }

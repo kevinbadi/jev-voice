@@ -6,6 +6,7 @@
     uv run jev-voice --ptt               # press Enter to talk, Enter to stop
     uv run jev-voice --text "open chrome and go to youtube"      # no mic
     uv run jev-voice --text "..." --dry-run                        # plan only
+    uv run jev-voice --goal "reply to the last email from Sam saying yes"   # multi-step agent, no mic
 """
 from __future__ import annotations
 
@@ -41,7 +42,73 @@ def ding(path: str) -> None:
     subprocess.Popen(["afplay", "-v", "0.4", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def execute(plan: Plan, dry: bool = False) -> str:
+_DESKTOP = None
+
+
+TASK_DRIVER = os.environ.get("TASK_DRIVER", "browser")
+
+
+SELLER_MESSAGE = os.environ.get("SELLER_MESSAGE", "Hi! Is this still available?")
+
+
+def run_task(goal: str, speaker: Speaker | None = None, start_url: str | None = None, recommend: bool = False,
+             message: str | None = None) -> str:
+    """Multi-step goal: the jev-ultrafast loop. TASK_DRIVER=browser (default) drives Chrome over
+    CDP exactly as jev-ultrafast does; TASK_DRIVER=desktop uses the experimental AX-tree port.
+    One Jev request per step; the executor only ever touches observed controls."""
+    global _DESKTOP
+    from .agent import describe_step
+
+    if speaker and FEEDBACK == "voice":
+        speaker.say(flavor("Working on it."))
+    else:
+        ding(SOUND_START)
+
+    def show(step: dict) -> None:
+        line = describe_step(step["action"], step["operation"], step["text"])
+        print(f"  ▶ {line}")
+        OVERLAY.set("thinking", f"{step['step']}. {line}")
+
+    if TASK_DRIVER == "browser":
+        from .web import WebAgent
+
+        agent_cm = WebAgent(goal, url=start_url, display=os.environ.get("AGENT_DISPLAY") or None, on_step=show)
+    else:
+        from .agent import Agent
+        from .desktop import Desktop
+
+        if _DESKTOP is None:
+            _DESKTOP = Desktop()
+        agent_cm = Agent(goal, desktop=_DESKTOP, on_step=show)
+    with agent_cm as agent:
+        try:
+            for st in agent.run():
+                pass
+        except Exception as e:  # noqa: BLE001
+            print(f"  ! {e}")
+            return "I couldn't finish that."
+        st = agent.state
+        from .costs import run_costs, usd
+
+        reply = "Done." if st["status"] == "done" else "I couldn't finish that."
+        if recommend and TASK_DRIVER == "browser" and st["status"] == "done":
+            try:
+                rec = agent.recommend()
+                OVERLAY.set("done", f"★ {rec['summary']}", revert_after=8.0)
+                reply = rec["spoken"]
+                if message:
+                    OVERLAY.set("thinking", f"✉ {message}")
+                    sent = agent.message_seller(message)
+                    reply += " I've messaged the seller." if sent["status"] == "done" else " I couldn't send the message."
+            except Exception as e:  # noqa: BLE001
+                print(f"  ! recommendation: {e}")
+                reply = "I found results but couldn't pick one."
+        c = run_costs(st["decisions"], st["text_calls"])
+        print(f"  {st['elapsed_ms']} ms  {len(st['history'])} actions  {st['status']}  ({c['jev']['requests']} Jev calls, {usd(c['total_usd'])})")
+        return reply
+
+
+def execute(plan: Plan, dry: bool = False, speaker: Speaker | None = None) -> str:
     """Run the plan. Returns the short spoken confirmation."""
     a = plan.args
     act = plan.action
@@ -53,6 +120,11 @@ def execute(plan: Plan, dry: bool = False) -> str:
         return "Not sure what you meant."
     if dry:
         return f"[dry] {plan}"
+    if act == "task":
+        site = plan.answers.get("site", {}).get("choice") if plan.answers else None
+        return run_task(plan.utterance, speaker, start_url=actions.SITES.get(site) if site else None,
+                        recommend=bool(a.get("recommend")) or bool(a.get("message_seller")),
+                        message=SELLER_MESSAGE if a.get("message_seller") else None)
     if a.get("in_app"):
         if not actions.focus_app(a["in_app"]):
             return f"I couldn't bring up {a['in_app']}."
@@ -117,7 +189,7 @@ def handle(brain: Brain, speaker: Speaker, utterance: str, dry: bool, depth: int
                 time.sleep(0.35)  # let the previous app/page come up
             return True
     try:
-        reply = execute(plan, dry)
+        reply = execute(plan, dry, speaker)
     except Exception as e:  # noqa: BLE001
         reply = "That failed."
         print(f"  ! {e}")
@@ -128,6 +200,8 @@ def handle(brain: Brain, speaker: Speaker, utterance: str, dry: bool, depth: int
             ding(SOUND_STOP)
         return False
     failed = reply in ("That failed.", "Not sure what you meant.", "I don't see that app.") or reply.startswith("I couldn't")
+    if plan.action == "task" and plan.confidence >= config.ACTION_MIN_CONFIDENCE and not dry:
+        OVERLAY.set("error" if failed else "done", f"Task: {utterance}  ·  {reply}", revert_after=3.0)
     if reply:
         line = flavor(reply) if not dry else reply
         print(f"  ◀ {line}")
@@ -165,6 +239,7 @@ def describe(plan: Plan) -> str:
         "screenshot": lambda: "Screenshot",
         "open_folder": lambda: f"Open {a.get('folder')}",
         "system": lambda: f"{a.get('op', '').replace('_', ' ').capitalize()}",
+        "task": lambda: f"Task: {plan.utterance}",
         "stop": lambda: "Bye",
     }.get(act, lambda: act)() + (f"  ·  in {a['in_app']}" if a.get("in_app") else "")
 
@@ -173,6 +248,14 @@ def run_text(args: argparse.Namespace) -> None:
     brain = Brain()
     speaker = Speaker(enabled=not args.quiet)
     handle(brain, speaker, args.text, args.dry_run)
+
+
+def run_goal(args: argparse.Namespace) -> None:
+    speaker = Speaker(enabled=not args.quiet)
+    reply = run_task(args.goal, speaker)
+    print(f"  ◀ {reply}")
+    if FEEDBACK == "voice":
+        speaker.say(flavor(reply), wait=True)
 
 
 class Session:
@@ -472,6 +555,7 @@ def run_voice(args: argparse.Namespace) -> None:
 def main() -> None:
     p = argparse.ArgumentParser(prog="jev-voice", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--text", help="run one command from text instead of the microphone")
+    p.add_argument("--goal", help="run one multi-step goal with the desktop agent instead of the microphone")
     p.add_argument("--dry-run", action="store_true", help="plan with Jev but do not touch the computer")
     p.add_argument("--hold", action="store_true", help="Caps Lock hold-to-talk only, no wake word")
     p.add_argument("--always-on", action="store_true", help="open mic, every utterance is a command (no wake word)")
@@ -484,6 +568,8 @@ def main() -> None:
         args.device = int(args.device)
     if args.text:
         run_text(args)
+    elif args.goal:
+        run_goal(args)
     else:
         run_voice(args)
 

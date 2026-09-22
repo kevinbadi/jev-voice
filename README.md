@@ -63,6 +63,82 @@ longer toggles capitals while the remap is installed.
 | "take a screenshot", "open my downloads", "lock the screen", "toggle dark mode" | misc |
 | "open notes and type buy milk and press enter" | compound: Jev flags it, code splits it, each step runs in order |
 
+## Multi-step tasks: the ultrafast loop on the desktop
+
+Single commands above are one Jev call and one action. Anything that needs *looking at the
+screen* runs the agent loop from [jev-ultrafast](https://github.com/browser-use/jev-ultrafast),
+ported from the DOM to the macOS Accessibility tree:
+
+```
+AX tree of the frontmost window ─► indexed element table ─► one Jev request ─► executor
+                                   [1] button   Back                │ operation
+                                   [2] textfield Address and search │ click_target
+                                   [3] link     Home                │ type_text_target
+                                   ...                              │ open_app_target
+                                                                    │ press_key_target
+                                                            use the matching head only
+```
+
+```sh
+jev-agent --goal "open notes and write buy milk"          # from the terminal
+jev-agent --goal "..." --choose --elements                # pause before each step, show the table
+jev --goal "reply to the last email from Sam saying yes"  # same loop, spoken reply
+```
+
+By voice, Jev routes an utterance to `task` when it needs several on-screen steps
+("Alfred, find the cheapest flight to London on google flights"). The pill shows each step.
+
+Operations are `CLICK`, `TYPE_TEXT`, `OPEN_APP`, `PRESS_KEY`, `SCROLL_UP`, `SCROLL_DOWN`,
+`WAIT`, `DONE`, `BLOCKED`. Only operations with a valid target on this screen are offered.
+Every target is an observed `AXUIElement` held by code; the model never emits selectors,
+coordinates, scripts, or shell. Before input the executor re-reads the target's role, label,
+value and enabled state, re-resolves its geometry, and hit-tests its centre so a covered
+control is never clicked. `TYPE_TEXT` values come from a small text model if
+`TEXT_MODEL_API_KEY` is set, otherwise Jev *selects* the value from spans cut out of the goal
+(nothing generated). Runs are bounded: 40 actions, 80 Jev calls, and three actions in a row
+that change nothing stop the run as `BLOCKED`. A `DONE` choice is the model's claim, not proof.
+
+### Browser driver (default) and recommendations
+
+Browser goals run on [jev-ultrafast](https://github.com/browser-use/jev-ultrafast) unmodified:
+Chrome over CDP through browser-harness, in a new window on `AGENT_DISPLAY`. One-time setup:
+tick **Allow remote debugging for this browser instance** at `chrome://inspect/#remote-debugging`
+and click Allow. `TASK_DRIVER=desktop` switches to the experimental Accessibility-tree port.
+
+```sh
+jev-agent --url https://www.autotrader.ca --recommend \
+  --goal "Find a used 2020 Mercedes-Benz CLA under \$15,000 CAD near Toronto. Postal code M5V 3L9. Stop when the filtered listings are visible."
+```
+
+`--recommend` (or saying "recommend me…" by voice) adds one more Jev choice after the run:
+code reads the listing cards (title, price, mileage, distance) from the results and following
+pages, Jev picks one against your goal, Jev picks the reason from facts code verified
+(cheapest, lowest mileage, requested year, closest), and the agent opens that listing.
+Nothing is generated. A typical AutoTrader run: ~13 s, ~30 Jev calls, about one cent.
+
+Around ultrafast, all code-owned: controls behind an open modal are withdrawn; an action
+repeated twice without leaving the page is withdrawn; a BLOCKED under 50% executes the
+runner-up operation from the same request; a DONE chosen twice stands on live pages;
+an unchanged page reuses the decision for free; three rejections of one choice stop the run.
+Without `TEXT_MODEL_API_KEY`, TYPE_TEXT values are Jev choices over spans cut from the goal
+(sentences, comma clauses, labelled values like "postal code M5V 3L9", numbers as "$15,000"/"15000").
+
+### Inspector
+
+```sh
+uv run jev-inspect          # open http://127.0.0.1:8766 on the monitor the agent is NOT confined to
+```
+
+The inspector is the jev-ultrafast demo page for the desktop: the confined monitor with numbered
+element badges, the operation and target probabilities of each Jev request, the text value
+(selected by Jev or written by the text helper), the executed-step checklist with elapsed
+seconds and median decision latency, and an exportable decision trail. **Choose next** pauses
+before execution; **Run automatically** loops. Pick the monitor in the form; `AGENT_DISPLAY`
+in `.env` sets the default. Left/right follow the macOS Displays arrangement, so use `main`
+or an index when that differs from the physical layout.
+
+Read [docs/design.md](docs/design.md) for the freshness guards and the differences from the browser version.
+
 ## How the Jev layer works (`jev_voice/brain.py`)
 
 One request per utterance with ~15 speculative questions evaluated in parallel:
@@ -108,8 +184,16 @@ instant).
 
 ```
 jev_voice/
-  main.py     loop, CLI, compound handling
-  brain.py    Jev questions, candidate extraction, Plan
+  main.py     loop, CLI, compound handling, task hand-off
+  brain.py    Jev questions, candidate extraction, Plan (single commands)
+  agent.py    multi-step loop: observe → choose → act (port of jev-ultrafast/agent.py)
+  desktop.py  AX-tree snapshot, indexed controls, freshness guards, execution (snapshot.js + browser.py)
+  policy.py   dynamic operation/target heads, text helper (model.py)
+  questions.py model instructions for the agent
+  inspector.py loopback inspector server (demo.py); static/ holds the page
+  web.py      browser driver: jev-ultrafast Agent/Browser on a confined Chrome window + guards
+  recommend.py listing harvest → Jev pick → verified reason → open the listing
+  costs.py    Jev / text-helper cost accounting
   actions.py  macOS execution (open, keystrokes, scroll, volume, media keys…)
   audio.py    mic + VAD endpointing
   stt.py      whisper-server client
@@ -120,6 +204,15 @@ jev_voice/
   persona.py  butler / cowboy phrasing
 scripts/
   setup.sh    one-shot install: deps, model, Caps Lock remap, launcher, permissions
+tests/
+  test_agent.py  offline contracts for the agent loop (no screen, no paid APIs)
+```
+
+## Development
+
+```sh
+uv run ruff check .
+uv run pytest          # offline
 ```
 
 ## License

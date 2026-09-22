@@ -4,3 +4,7 @@ models/*.bin
 __pycache__/
 *.pyc
 recordings/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+runs/
