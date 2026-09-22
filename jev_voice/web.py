@@ -166,6 +166,29 @@ CONTEXT_LABELS = """(ids => {
   return out;
 })"""
 
+# Chess boards (chess.com): pieces and empty squares become observed elements with code-owned ids, labelled in
+# plain chess terms, so the board is a set of choices rather than an opaque widget.
+CHESS_ELEMENTS = """(() => {
+  const cache=window.__jevFast; if (!cache) return [];
+  const p=document.querySelector('.piece'); let b=p;
+  while (b && !(b.tagName.toLowerCase().includes('board') || /\\bboard\\b/.test(b.className||''))) b=b.parentElement;
+  if (!b) return [];
+  const r=b.getBoundingClientRect(), size=r.width/8, flipped=b.classList.contains('flipped');
+  const names={p:'pawn',n:'knight',b:'bishop',r:'rook',q:'queen',k:'king'};
+  const out=[];
+  for (const e of b.querySelectorAll('.piece')) {
+    const m=/\\b([wb])([pnbrqk])\\b/.exec(e.className), sq=/square-(\\d)(\\d)/.exec(e.className);
+    if (!m || !sq) continue;
+    if (!cache.ids.has(e)) cache.ids.set(e,cache.next++);
+    const id=cache.ids.get(e); cache.nodes.set(id,e);
+    const file='abcdefgh'[+sq[1]-1], rank=sq[2];
+    const rr=e.getBoundingClientRect();
+    out.push({node:id, role:'chess-piece', label:(m[1]==='w'?'white ':'black ')+names[m[2]]+' on '+file+rank, value:'',
+      rect:{x:rr.x,y:rr.y,w:rr.width,h:rr.height}, guard:cache.guard(e)});
+  }
+  return {pieces:out, board:{x:r.x,y:r.y,w:r.width,h:r.height,flipped}};
+})()"""
+
 # With a modal open, only its contents can receive input; everything behind it is withdrawn.
 MODAL_NODES = """(ids => {
   const modals=[...document.querySelectorAll('dialog[open],[aria-modal="true"],[role="dialog"]')]
@@ -689,6 +712,29 @@ class WebAgent(uf_agent.Agent):
         if added:
             print(f"  + {added} label-wrapped toggles offered", flush=True)
 
+    def _augment_chess(self) -> None:
+        """chess.com: every piece is an observed, clickable element labelled 'white knight on g1'."""
+        page = self.state["page"]
+        if "chess.com" not in page.get("url", ""):
+            return
+        try:
+            found = self.browser.evaluate(CHESS_ELEMENTS) or {}
+        except StalePage:
+            return
+        pieces = found.get("pieces") if isinstance(found, dict) else None
+        if not pieces:
+            return
+        known = {a.get("node") for a in page["actions"]}
+        n = sum(1 for a in page["actions"] if a["id"].startswith("e"))
+        for t in pieces:
+            if t["node"] in known:
+                continue
+            n += 1
+            page["actions"].append({"id": f"e{n}", "kind": "click", "node": t["node"], "role": t["role"], "label": t["label"], "value": "",
+                                    "rect": t["rect"]})
+            page["guards"][str(t["node"])] = t["guard"]
+        page["chess_board"] = found.get("board")
+
     def _prune_behind_modal(self) -> None:
         """Offer only the open modal's controls while one is showing (code owns the action space)."""
         page = self.state["page"]
@@ -804,6 +850,7 @@ class WebAgent(uf_agent.Agent):
                             raise ValueError(self.state["last_error"])
                     self._augment_context_labels()
                     self._augment_label_toggles()
+                    self._augment_chess()
                     self._prune_futile()
                     self._prune_recent()
                     self._prune_behind_modal()

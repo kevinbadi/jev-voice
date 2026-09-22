@@ -61,9 +61,23 @@ def _job(mode: str, message: str | None) -> None:
         agent = AGENT
         if agent is None:
             raise ValueError("Start a task first")
+        def board_live() -> bool:
+            if mode != "chess" or not isinstance(agent, WebAgent):
+                return False
+            try:
+                from . import chess_play
+
+                snap = chess_play.read(agent.browser.session)
+                return bool(snap and len(snap["pieces"]) >= 2 and not snap["over"])
+            except Exception:  # noqa: BLE001
+                return False
+
         if mode in ("auto", "full", "chess"):
             for _ in range(MAX_STEPS * 2):
                 if JOB["stop"] or agent.state["status"] in {"done", "blocked"}:
+                    break
+                if board_live():
+                    agent.state["status"] = "done"  # a live board is the goal; do not wait for Jev to say so
                     break
                 if time.time() - JOB["started_at"] > MAX_SECONDS:
                     agent.state["status"] = "blocked"
