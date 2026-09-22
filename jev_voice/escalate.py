@@ -308,3 +308,20 @@ def progress(
         model=FAST_MODEL,
     )
     return [x for x in data["remaining"] if x in steps], meta
+
+
+def explain_move(fen: str, san: str, facts: dict[str, str], emphasis: str, option: dict[str, Any], options: list[dict[str, Any]]) -> tuple[str, dict[str, Any]]:
+    """A spoken, learner-facing explanation of the chosen move. Grounded: only the facts and engine lines given."""
+    schema = {"type": "object", "properties": {"explanation": {"type": "string"}}, "required": ["explanation"], "additionalProperties": False}
+    data, meta = _ask(
+        "You are a friendly chess coach narrating a live game for a learner. Explain in one or two short spoken sentences "
+        "(under 45 words, plain words, no notation symbols other than the move names given) why this move is being played. "
+        "Use ONLY the verified facts and engine lines provided; the fact marked as emphasis is the main point. Do not invent "
+        "threats, plans or evaluations that are not in the data. Mention the strongest alternative only if it was close.",
+        json.dumps({"position_fen": fen, "move": san, "verified_facts": facts, "emphasis": emphasis,
+                    "engine": {"eval": option["eval"], "line": option["line"], "rank": option["rank"]},
+                    "alternatives": [{"move": o["san"], "eval": o["eval"]} for o in options[:3] if o["san"] != san]}),
+        schema, max_tokens=160, slot="text", model=FAST_MODEL,
+    )
+    text = (data.get("explanation") or "").strip()
+    return (text if 0 < len(text) <= 400 else ""), meta

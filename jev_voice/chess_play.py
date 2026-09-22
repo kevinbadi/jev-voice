@@ -241,8 +241,9 @@ def facts_for(board: chess.Board, move: chess.Move, options: list[dict[str, Any]
     if piece and piece.piece_type == chess.PAWN and chess.square_file(move.to_square) in (3, 4) and not board.is_capture(move):
         out["centre"] = "it claims space in the centre"
     board.push(move)
-    attacked = [chess.square_name(sq) for sq in chess.SQUARES if board.piece_at(sq) and board.piece_at(sq).color != board.turn
-                and board.is_attacked_by(not board.turn, sq) and board.piece_at(sq).piece_type in (chess.QUEEN, chess.ROOK)]
+    them = board.turn  # after our move it is their turn
+    attacked = [chess.square_name(sq) for sq in board.attacks(move.to_square)
+                if (pc := board.piece_at(sq)) and pc.color == them and pc.piece_type in (chess.QUEEN, chess.ROOK)]
     board.pop()
     if attacked:
         target = board.piece_at(chess.parse_square(attacked[0]))
@@ -284,6 +285,17 @@ def teaching_line(board: chess.Board, move: chess.Move, options: list[dict[str, 
             pass
     alt = f" {options[1]['san']} was the alternative at {options[1]['eval']}." if len(options) > 1 and option["rank"] == 1 else ""
     spoken = f"{san}: {facts[chosen]}. Stockfish rates it {option['eval']}.{alt}"
+    if os.environ.get("CHESS_EXPLAIN", "llm") == "llm":
+        try:
+            from . import escalate
+
+            if escalate.enabled():
+                text, emeta = escalate.explain_move(board.fen(), san, facts, chosen, option, options)
+                if text:
+                    spoken = text
+                    meta["explained_by"] = emeta.get("model")
+        except Exception as error:  # noqa: BLE001
+            meta["explain_error"] = str(error)[:80]
     return spoken, meta
 
 

@@ -232,6 +232,9 @@ function renderTree() {
   tree.hidden = false;
   const idx = treeIndex == null || treeIndex >= moves.length ? moves.length - 1 : treeIndex;
   const m = moves[idx], d = m.decision;
+  const sig = `${moves.length}:${idx}:${m.narration || ""}`;
+  if (tree.dataset.sig === sig) return;  // unchanged: do not rebuild (that was the flicker)
+  tree.dataset.sig = sig;
   $("tree-move").textContent = `${idx + 1}. ${d.chosen}`;
   $("tree-nav").innerHTML = `${idx + 1} / ${moves.length} <button type="button" id="tree-prev" ${idx === 0 ? "disabled" : ""}>‹</button><button type="button" id="tree-next" ${idx >= moves.length - 1 ? "disabled" : ""}>›</button>`;
   $("tree-prev").onclick = () => { treeIndex = idx - 1; renderTree(); };
