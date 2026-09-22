@@ -319,12 +319,16 @@ def sync(board: chess.Board, observed: dict[int, chess.Piece]) -> tuple[chess.Bo
         if board.piece_map() == observed:
             return board, move
         board.pop()
-    # Two plies (we moved and the opponent already replied) or something unusual: rebuild from the placement.
+    # Two plies at once, or a move we could not match: rebuild from the placement. The side that was to move
+    # has moved (that is why the board changed), so the turn flips.
     rebuilt = chess.Board(None)
     for sq, piece in observed.items():
         rebuilt.set_piece_at(sq, piece)
-    rebuilt.turn = board.turn
-    rebuilt.set_castling_fen(board.castling_xfen() if board.piece_map() else "-")
+    rebuilt.turn = not board.turn
+    try:
+        rebuilt.set_castling_fen(board.castling_xfen() if board.piece_map() else "-")
+    except ValueError:
+        rebuilt.set_castling_fen("-")
     return rebuilt, None
 
 
@@ -368,6 +372,18 @@ def play(browser: Any, max_moves: int = 200, on_step: Callable[[dict[str, Any]],
         if board.turn != us:
             time.sleep(0.35)
             idle += 0.35
+            if idle > 25 and pushed is None and board.piece_map() == placement(snap):
+                # Nothing has changed for a while while we think it is their turn: we may have lost sync.
+                # Rebuild from the board and assume it is ours (an illegal click costs nothing; a lost game does).
+                rebuilt = chess.Board(None)
+                for sq, piece in placement(snap).items():
+                    rebuilt.set_piece_at(sq, piece)
+                rebuilt.turn = us
+                rebuilt.set_castling_fen("-")
+                board = rebuilt
+                idle = 0.0
+                print("  ♟ resync: assuming it is our move", flush=True)
+                continue
             if idle > 600:
                 return {"result": "opponent idle", "moves": played}
             continue
