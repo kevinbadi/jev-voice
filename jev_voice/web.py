@@ -235,10 +235,21 @@ UNCOVERED_POINT = """(action => new Promise(resolve => {
 
 
 class ConfinedBrowser(Browser):
-    def __init__(self, url: str, display: str | None = None) -> None:
+    def __init__(self, url: str, display: str | None = None, attach_url_pattern: str | None = None) -> None:
         ensure_daemon()
         bounds = display_bounds(display) if display else None
         vw, vh = viewport_for(bounds)
+        existing = None
+        if attach_url_pattern:
+            # Resume an existing tab (e.g. a chess game in progress) instead of opening a new one.
+            existing = next((t for t in cdp("Target.getTargets")["targetInfos"]
+                             if t.get("type") == "page" and re.search(attach_url_pattern, t.get("url", ""))), None)
+        self.resumed = existing is not None
+        if existing:
+            self.target = existing["targetId"]
+            self.session = cdp("Target.attachToTarget", targetId=self.target, flatten=True)["sessionId"]
+            self.call("Emulation.setFocusEmulationEnabled", enabled=True)
+            return
         self.target = cdp("Target.createTarget", url="about:blank", newWindow=bounds is not None, background=True)["targetId"]
         self.session = cdp("Target.attachToTarget", targetId=self.target, flatten=True)["sessionId"]
         if bounds is not None:
@@ -411,6 +422,7 @@ class WebAgent(uf_agent.Agent):
         record_dir: str | Path | None = None,
         screenshots: bool = False,
         on_step: Callable[[dict[str, Any]], None] | None = None,
+        attach_url_pattern: str | None = None,
     ) -> None:
         task = goals.strip() if isinstance(goals, str) else "\n".join(goals).strip()
         if not task:
@@ -424,7 +436,7 @@ class WebAgent(uf_agent.Agent):
         trust = load_trust(url or DEFAULT_URL)
         if trust is not None:
             self.TIE_BREAK_BELOW = round(max(0.35, min(0.75, 0.75 - 0.4 * trust)), 2)
-        self.browser = ConfinedBrowser(url or DEFAULT_URL, display)
+        self.browser = ConfinedBrowser(url or DEFAULT_URL, display, attach_url_pattern=attach_url_pattern)
         try:
             page = self.browser.observe(screenshot=self.screenshots)
         except Exception:

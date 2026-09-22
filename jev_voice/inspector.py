@@ -215,7 +215,11 @@ def command(name: str, body: dict[str, Any]) -> dict[str, Any]:
             if not url.startswith(("http://", "https://")):
                 url = "https://" + url
                 JOB["phase"] = "planning"
-            AGENT = WebAgent(goal, url=url, display=None if display == "all" else display, screenshots=True)
+            chessy = "chess.com" in url or "chess" in goal.lower()
+            AGENT = WebAgent(goal, url=url, display=None if display == "all" else display, screenshots=True,
+                             attach_url_pattern=r"chess\.com/game/" if chessy else None)
+            if getattr(AGENT.browser, "resumed", False):
+                AGENT.state["status"] = "done"  # already on a live game: straight to the engine loop
             JOB["phase"] = None
         else:
             if DESKTOP is None or DESKTOP.display != display_bounds(display):
