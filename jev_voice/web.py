@@ -966,39 +966,48 @@ class WebAgent(uf_agent.Agent):
         return {"status": self.state["status"], "text": text, "url": self.state["page"]["url"], "actions": len(self.state["history"])}
 
     def message_sellers(self, text: str, max_sellers: int = 1) -> list[dict[str, Any]]:
-        """Message up to ``max_sellers`` of the recommended candidates, best first. Each candidate is opened by its
-        saved URL (no searching again), messaged once, and the outcome recorded in state['messages']."""
+        """Hunt loop: from the saved results URL, harvest listings (scrolling to load more), keep only the ones
+        that match the goal's make/model/year/price, message them best-first, return to the results, scroll
+        deeper for new ones, and repeat until ``max_sellers`` messages are out or the results are exhausted."""
         from . import recommend as rc
 
-        rec = self.state.get("recommendation")
-        if not rec:
-            raise ValueError("Recommend first")
-        required = rc.must_match(self.state["original_goal"])
-        candidates = [c for c in [rec["listing"]] + [c for c in rec.get("ranked_full", []) if c is not rec["listing"]]
-                      if rc.matches_goal(c, required)]
+        results_url = self.state.get("results_url") or self.state["page"]["url"]
         results: list[dict[str, Any]] = self.state.setdefault("messages", [])
         done_urls = {m["url"] for m in results}
-        for candidate in candidates:
-            if len(results) >= max_sellers:
-                break
-            url = candidate.get("href")
-            if not url or url in done_urls:
+        rec = self.state.get("recommendation") or {}
+        preferred = [x.get("href") for x in [rec.get("listing")] + list(rec.get("ranked_full", [])) if x and x.get("href")]
+        rounds, want = 0, max_sellers * 3
+        while len(results) < max_sellers and rounds < 4:
+            rounds += 1
+            if self.state["page"]["url"].split("?")[0] != results_url.split("?")[0]:
+                self.browser.call("Page.navigate", url=results_url)
+                time.sleep(1.5)
+            listings = rc.filter_constraints(self.state["original_goal"], rc.harvest(self.browser, pages=1, want=want, max_scrolls=4 * rounds))
+            fresh = [x for x in listings if x.get("href") and x["href"] not in done_urls]
+            fresh.sort(key=lambda x: (0 if x["href"] in preferred else 1, preferred.index(x["href"]) if x["href"] in preferred else 0,
+                                      -(x.get("year") or 0), x.get("price") or 0))
+            print(f"  ⌕ hunt round {rounds}: {len(listings)} matching listings, {len(fresh)} not yet messaged", flush=True)
+            if not fresh:
+                want *= 2
+                if rounds >= 2:
+                    break
                 continue
-            if self.state["page"]["url"].split("?")[0] != url.split("?")[0]:
+            for candidate in fresh:
+                if len(results) >= max_sellers:
+                    break
                 rc.open_listing(self.browser, candidate)
                 time.sleep(0.8)
-            outcome = self.message_seller(text)
-            outcome["listing"] = rc._summary(candidate)
-            results.append(outcome)
-            done_urls.add(url)
-            print(f"  ✉ {outcome['status'].upper()} · {outcome['listing'][:60]}", flush=True)
-        if self.state.get("results_url"):
-            try:
-                self.browser.call("Page.navigate", url=self.state["results_url"])
-                time.sleep(1.0)
-                self.state["page"] = self.browser.observe(screenshot=self.screenshots)
-            except Exception:  # noqa: BLE001
-                pass
+                outcome = self.message_seller(text)
+                outcome["listing"] = rc._summary(candidate)
+                results.append(outcome)
+                done_urls.add(candidate["href"])
+                print(f"  ✉ {outcome['status'].upper()} · {outcome['listing'][:60]}", flush=True)
+        try:
+            self.browser.call("Page.navigate", url=results_url)
+            time.sleep(1.0)
+            self.state["page"] = self.browser.observe(screenshot=self.screenshots)
+        except Exception:  # noqa: BLE001
+            pass
         return results
 
     def recommend(self, pages: int | None = None, open_result: bool = True) -> dict[str, Any]:
@@ -1010,7 +1019,7 @@ class WebAgent(uf_agent.Agent):
         if results_url and self.state["page"]["url"] != results_url:
             self.browser.call("Page.navigate", url=results_url)
             time.sleep(1.5)
-        listings = rc.harvest(self.browser, pages or rc.MAX_PAGES)
+        listings = rc.harvest(self.browser, pages or rc.MAX_PAGES, want=30)
         rec = rc.pick(self.state["original_goal"], listings)
         rec["harvest_ms"] = round((time.perf_counter() - started) * 1000) - sum(c["latency_ms"] for c in rec["calls"])
         self.state["text_calls"].extend({**c, "field": "recommendation", "value": rec["summary"]} for c in rec["calls"])

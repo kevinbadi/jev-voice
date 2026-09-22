@@ -18,7 +18,7 @@ from jev_ultrafast.model import post_json, validate_choice
 from . import config
 
 MAX_PAGES = int(os.environ.get("RECOMMEND_PAGES", "3"))
-MAX_LISTINGS = 60
+MAX_LISTINGS = 120
 
 # Generic listing-card reader for classified/marketplace result pages: a card is the nearest
 # ancestor of a listing link that shows both a price and a mileage. Everything is read from the
@@ -63,11 +63,22 @@ def _evaluate(session: str, expression: str) -> Any:
     return r.get("result", {}).get("value")
 
 
-def harvest(browser: Any, pages: int = MAX_PAGES) -> list[dict[str, Any]]:
-    """Read listing cards from the current results page and up to ``pages`` following pages."""
+def harvest(browser: Any, pages: int = MAX_PAGES, want: int = 20, max_scrolls: int = 8) -> list[dict[str, Any]]:
+    """Read listing cards from the current results page: scroll to load more (infinite scroll) until ``want``
+    listings or no growth, then follow up to ``pages`` next-page links."""
     session = browser.session
     listings: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
+    # Infinite scroll first: many marketplaces render ~10 cards and load the rest on scroll.
+    grown, scrolls = True, 0
+    while grown and scrolls < max_scrolls:
+        before = len(_evaluate(session, HARVEST)["listings"])
+        if before >= want:
+            break
+        cdp("Input.dispatchMouseEvent", session_id=session, type="mouseWheel", x=900, y=500, deltaX=0, deltaY=2200)
+        time.sleep(1.1)
+        grown = len(_evaluate(session, HARVEST)["listings"]) > before
+        scrolls += 1
     for page_no in range(1, pages + 1):
         # Results render after the navigation settles; wait until the card count is stable and non-zero.
         result, previous, deadline = None, -1, time.monotonic() + 6
@@ -88,7 +99,7 @@ def harvest(browser: Any, pages: int = MAX_PAGES) -> list[dict[str, Any]]:
                 seen_urls.add(key)
                 item["page"] = page_no
                 listings.append(item)
-        if len(listings) >= MAX_LISTINGS or not result["next"] or page_no == pages:
+        if len(listings) >= max(MAX_LISTINGS, want) or not result["next"] or page_no == pages:
             break
         before = result["url"]
         # Next page: a real click on the observed pagination control, then wait for the document.

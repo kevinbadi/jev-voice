@@ -463,4 +463,5 @@ def test_recommendation_refuses_listings_that_do_not_match_the_goal():
     assert rc.matches_goal(cla, rc.must_match(goal))
     with pytest.raises(ValueError, match="Nothing recommended, nobody messaged"):
         rc.pick(goal, [tesla, boat])
+    assert rc.filter_constraints(goal, [tesla, boat, cla]) == [cla]
     assert rc.must_match("Find a used 2020 Mercedes-Benz CLA under $15,000 near Toronto") == {"make": "Mercedes-Benz", "model": "CLA"}
