@@ -465,3 +465,13 @@ def test_recommendation_refuses_listings_that_do_not_match_the_goal():
         rc.pick(goal, [tesla, boat])
     assert rc.filter_constraints(goal, [tesla, boat, cla]) == [cla]
     assert rc.must_match("Find a used 2020 Mercedes-Benz CLA under $15,000 near Toronto") == {"make": "Mercedes-Benz", "model": "CLA"}
+
+
+def test_goal_max_year_and_price_are_enforced():
+    from jev_voice import recommend as rc
+
+    goal = "type 'Mercedes-Benz CLA' into Search Marketplace, set the Year maximum to 2020 and the Price maximum to 15000"
+    older = {"title": "2018 Mercedes-Benz cla", "text": "", "year": 2018, "price": 14000, "km": None, "href": "a"}
+    newer = {"title": "2022 Mercedes-Benz cla 250", "text": "", "year": 2022, "price": 14500, "km": None, "href": "b"}
+    pricey = {"title": "2019 Mercedes-Benz cla", "text": "", "year": 2019, "price": 16000, "km": None, "href": "c"}
+    assert rc.filter_constraints(goal, [older, newer, pricey]) == [older]

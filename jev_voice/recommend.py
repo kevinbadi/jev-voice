@@ -217,10 +217,18 @@ def filter_constraints(goal: str, listings: list[dict[str, Any]]) -> list[dict[s
         r"(?:minimum year|min(?:imum)?\s*year|newer than|at least|from)\s*(20\d{2}|19\d{2})|(20\d{2}|19\d{2})\s*(?:or newer|\+|and up)",
         goal, re.I,
     )
-    max_price = re.search(r"(?:under|below|less than|max(?:imum)?(?: price)?(?: of)?|up to)\s*\$?\s*([\d,]{3,})", goal, re.I)
+    max_year = re.search(
+        r"(?:maximum year|max(?:imum)?\s*year|year\s*max(?:imum)?(?:\s*to)?|older than|no newer than|up to year)\s*(?:to\s*)?(20\d{2}|19\d{2})"
+        r"|(20\d{2}|19\d{2})\s*(?:or older|and older)",
+        goal, re.I,
+    )
+    max_price = re.search(r"(?:under|below|less than|max(?:imum)?(?: price)?(?: of)?(?:\s*to)?|up to)\s*\$?\s*([\d,]{3,})", goal, re.I)
     if min_year:
         y = int(min_year.group(1) or min_year.group(2))
         keep = [x for x in keep if x.get("year") is None or x["year"] >= y]
+    if max_year:
+        y = int(max_year.group(1) or max_year.group(2))
+        keep = [x for x in keep if x.get("year") is None or x["year"] <= y]
     if max_price:
         cap = int(max_price.group(1).replace(",", ""))
         keep = [x for x in keep if x.get("price") is None or x["price"] <= cap]
