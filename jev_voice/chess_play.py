@@ -9,6 +9,7 @@ Nothing here is model-driven: the position, the legal moves and the clicks are a
 """
 from __future__ import annotations
 
+import atexit
 import os
 import re
 import shutil
@@ -135,7 +136,96 @@ def _search(board: chess.Board, depth: int, alpha: int, beta: int) -> int:
     return best
 
 
-def choose_move(board: chess.Board, think_s: float = 0.6) -> tuple[chess.Move, str]:
+_engine: chess.engine.SimpleEngine | None = None
+
+
+def _stockfish() -> chess.engine.SimpleEngine | None:
+    """One long-lived Stockfish process (spawning per move cost ~0.3 s and could hang)."""
+    global _engine
+    if _engine is not None:
+        return _engine
+    path = os.environ.get("STOCKFISH_PATH") or shutil.which("stockfish") or "/opt/homebrew/bin/stockfish"
+    if not os.path.exists(path):
+        return None
+    try:
+        _engine = chess.engine.SimpleEngine.popen_uci(path, timeout=10.0)
+        atexit.register(close_engine)
+    except (chess.engine.EngineError, OSError):
+        _engine = None
+    return _engine
+
+
+def close_engine() -> None:
+    global _engine
+    if _engine is not None:
+        try:
+            _engine.quit()
+        except Exception:  # noqa: BLE001
+            pass
+        _engine = None
+
+
+def candidates(board: chess.Board, think_s: float = 0.6, n: int = 5) -> list[dict[str, Any]]:
+    """Stockfish's top-n moves with evaluations (centipawns from our side), best first."""
+    engine = _stockfish()
+    if engine is None:
+        return []
+    try:
+        infos = engine.analyse(board, chess.engine.Limit(time=think_s), multipv=n)
+    except (chess.engine.EngineError, OSError, TimeoutError):
+        close_engine()
+        return []
+    out = []
+    for i, info in enumerate(infos):
+        pv = info.get("pv")
+        if not pv:
+            continue
+        score = info["score"].pov(board.turn)
+        cp = score.score(mate_score=100000)
+        out.append({"move": pv[0], "san": board.san(pv[0]), "rank": i + 1, "cp": cp,
+                    "eval": (f"mate in {score.mate()}" if score.is_mate() else f"{cp / 100:+.2f}"),
+                    "line": " ".join(board.variation_san(pv[:4]).split()[:6])})
+    return out
+
+
+def jev_choose(board: chess.Board, options: list[dict[str, Any]], style: str | None) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """Jev selects the move from Stockfish's candidates. The default criterion is strength (rank 1 wins)."""
+    from jev_ultrafast.model import post_json, validate_choice
+
+    from . import config
+
+    key = os.environ.get("TYPESAFE_API_KEY") or config.TYPESAFE_API_KEY
+    if not key or not options:
+        return None
+    ids = {f"m{o['rank']}": o for o in options}
+    criteria = {k: f"{o['san']} · engine rank #{o['rank']} · eval {o['eval']} · line {o['line']}" for k, o in ids.items()}
+    instructions = ("Choose the move to play from the engine's candidates. Default: the strongest move (engine rank #1, best eval). "
+                    + (f"Style preference from the user: {style}. Deviate from #1 only when a candidate within 0.3 of the best eval fits "
+                       "that style clearly better." if style else "Pick a lower-ranked move only if its eval is equal to the best."))
+    body = {"model": os.environ.get("TYPESAFE_MODEL", config.JEV_MODEL),
+            "state": {"fen": board.fen(), "to_move": "white" if board.turn else "black", "candidates": criteria},
+            "questions": {"move": {"type": "choice", "criteria": criteria, "instructions": instructions}}}
+    started = time.time()
+    try:
+        result = post_json(config.TYPESAFE_URL, key, body)
+        answer = validate_choice(result["answers"]["move"], ids)
+    except Exception as error:  # noqa: BLE001
+        print(f"  ! jev move choice failed ({str(error)[:60]}); playing engine #1", flush=True)
+        return None
+    return ids[answer["choice"]], {"probabilities": {ids[k]["san"]: v for k, v in answer["probabilities"].items()},
+                                   "confidence": answer["confidence"], "latency_ms": round((time.time() - started) * 1000),
+                                   "usage": result.get("usage", {})}
+
+
+def choose_move(board: chess.Board, think_s: float = 0.6, style: str | None = None) -> tuple[chess.Move, str]:
+    options = candidates(board, think_s)
+    if options:
+        picked = jev_choose(board, options, style) if os.environ.get("CHESS_CHOOSER", "jev") == "jev" else None
+        if picked:
+            option, meta = picked
+            tag = f"jev {meta['probabilities'].get(option['san'], 0):.0%} · stockfish #{option['rank']} {option['eval']} · {meta['latency_ms']} ms"
+            return option["move"], tag
+        return options[0]["move"], f"stockfish #1 {options[0]['eval']}"
     path = os.environ.get("STOCKFISH_PATH") or shutil.which("stockfish") or "/opt/homebrew/bin/stockfish"
     if os.path.exists(path):
         try:
@@ -235,7 +325,7 @@ def sync(board: chess.Board, observed: dict[int, chess.Piece]) -> tuple[chess.Bo
 
 
 def play(browser: Any, max_moves: int = 200, on_step: Callable[[dict[str, Any]], None] | None = None,
-         stop: Callable[[], bool] | None = None, think_s: float = 0.6) -> dict[str, Any]:
+         stop: Callable[[], bool] | None = None, think_s: float = 0.6, style: str | None = None) -> dict[str, Any]:
     """Loop: keep the position in code, infer the opponent's move from the board, choose, click, wait."""
     session = browser.session
     played: list[dict[str, Any]] = []
@@ -277,8 +367,10 @@ def play(browser: Any, max_moves: int = 200, on_step: Callable[[dict[str, Any]],
                 return {"result": "opponent idle", "moves": played}
             continue
         idle = 0.0
-        move, engine = choose_move(board, think_s)
+        t0 = time.time()
+        move, engine = choose_move(board, think_s, style or os.environ.get("CHESS_STYLE") or None)
         san = board.san(move)
+        print(f"  ♟ thinking done in {time.time() - t0:.1f}s → {san}", flush=True)
         if not play_move(session, snap, move):
             print(f"  ♟ {san} did not register; re-reading", flush=True)
             time.sleep(0.6)
