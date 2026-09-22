@@ -278,6 +278,12 @@ def run_browser(args: argparse.Namespace) -> None:
             if d:
                 print(f"{st['elapsed_ms']:>6} ms  {d['operation']:<9} target={d['target']}  conf={d['confidence']:.2f}  jev {d['latency_ms']} ms")
         st = agent.state
+        if args.chess and st["status"] == "done":
+            from . import chess_play
+
+            print("\n  ♟ playing…")
+            summary = chess_play.play(agent.browser, on_step=show)
+            print(f"  ♟ {summary['result']} after {len(summary['moves'])} of our moves")
         rec = None
         if args.recommend and st["status"] != "done":
             print("\n  ✗ no recommendation: the run did not finish (status " + st["status"] + ")")
@@ -325,6 +331,8 @@ def main() -> None:
     p.add_argument("--recommend", action="store_true", help="browser driver: after the run, harvest the listings, let Jev pick one, open it")
     p.add_argument("--message", default=None, help="browser driver: after opening the recommended listing, send the seller this exact message")
     p.add_argument("--max-messages", type=int, default=1, help="message up to this many of the recommended sellers, best first")
+    p.add_argument("--chess", action="store_true",
+                   help="after the goal (a live chess.com board), play the game: code reads the board, Stockfish/search picks moves")
     args = p.parse_args()
     if args.message:
         args.recommend = True

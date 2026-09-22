@@ -81,7 +81,8 @@ async function runJob(mode, label) {
       if (s.job.phase === "message") setPhase("exec", "messaging the seller");
     }
     render();
-    $("status").textContent = s.job?.running ? { filters: "Running the filters…", pick: "Reading the listings and asking Jev to pick one…", message: "Messaging the seller…" }[s.job.phase] || label : "";
+    $("status").textContent = s.job?.running ? { filters: "Running the filters…", pick: "Reading the listings and asking Jev to pick one…", message: "Messaging the seller…", chess: `Playing… ${(s.chess_moves || []).slice(-1)[0] || ""}` }[s.job.phase] || label : "";
+    if (s.job?.phase === "chess") setPhase("exec", `chess · ${(s.chess_moves || []).length} moves`);
     if (!s.job?.running) break;
   }
   automatic = false;
@@ -226,6 +227,8 @@ function renderHero() {
   const history = state.history || [];
   const recent = history.slice(-6);
   const stepItems = recent.map((h) => ({ key: `s${h.step}`, cls: "hero-step done", html: `<span>✓</span>${escape(describe(h))}` }));
+  (state.chess_moves || []).slice(-6).forEach((m, i, arr) => stepItems.push({ key: `c${state.chess_moves.length - arr.length + i}`, cls: "hero-step done", html: `<span>♟</span>${escape(m)}` }));
+  if (state.chess_result) stepItems.push({ key: "chess-result", cls: "hero-step done", html: `<span>★</span>Game: ${escape(state.chess_result)}` });
   if (state.decision && live()) stepItems.push({ key: "current", cls: "hero-step current", html: `<span></span>${escape(state.decision.operation)}${state.decision.target ? ` · ${escape(state.decision.target)}` : ""}` });
   renderList($("hero-steps"), stepItems, (x) => x.key, (x) => `<div class="${x.cls}">${x.html}</div>`);
   const card = $("hero-card");

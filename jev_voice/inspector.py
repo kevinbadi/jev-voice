@@ -61,7 +61,7 @@ def _job(mode: str, message: str | None) -> None:
         agent = AGENT
         if agent is None:
             raise ValueError("Start a task first")
-        if mode in ("auto", "full"):
+        if mode in ("auto", "full", "chess"):
             for _ in range(MAX_STEPS * 2):
                 if JOB["stop"] or agent.state["status"] in {"done", "blocked"}:
                     break
@@ -74,6 +74,13 @@ def _job(mode: str, message: str | None) -> None:
                         agent.command("tick")
                     except (StaleScreen, StalePage) as stale:
                         agent.stale(stale)
+        if mode == "chess" and not JOB["stop"] and agent.state["status"] == "done":
+            from . import chess_play
+
+            JOB["phase"] = "chess"
+            summary = chess_play.play(agent.browser, on_step=lambda step: agent.state.setdefault("chess_moves", []).append(step["action"]["label"]),
+                                      stop=lambda: JOB["stop"])
+            agent.state["chess_result"] = summary["result"]
         if mode in ("full", "recommend") and not JOB["stop"] and (mode == "recommend" or agent.state["status"] == "done"):
             JOB["phase"] = "pick"
             with LOCK:
@@ -196,7 +203,7 @@ def command(name: str, body: dict[str, Any]) -> dict[str, Any]:
         if JOB["running"]:
             raise ValueError("A run is already in progress")
         mode = body.get("mode") or "auto"
-        if mode not in {"auto", "full", "recommend", "message"}:
+        if mode not in {"auto", "full", "recommend", "message", "chess"}:
             raise ValueError("Unknown run mode")
         JOB["sellers"] = max(1, min(10, int(body.get("sellers") or 1)))
         threading.Thread(target=_job, args=(mode, (body.get("message") or "").strip() or None), daemon=True).start()

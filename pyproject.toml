@@ -7,6 +7,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "anthropic>=1.7.0",
+    "chess>=1.11.2",
     "httpx>=0.28.1",
     "jev-ultrafast",
     "numpy>=2.5.3",
