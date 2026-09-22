@@ -30,7 +30,8 @@ READ = r"""(() => {
   const ml=document.querySelector('wc-simple-move-list, .move-list, [class*="move-list"]');
   // chess.com renders piece letters as figurine icons; rebuild SAN per move node so 'Nf3' is not read as 'f3'.
   const nodes=ml ? [...ml.querySelectorAll('[data-ply], .node, [class*="node"]')].filter(n=>!n.querySelector('[data-ply], .node')) : [];
-  const sans=nodes.map(n=>{const ic=n.querySelector('[class*="icon-font-chess"], [data-figurine]'); const cls=(ic&&(ic.className+' '+(ic.getAttribute('data-figurine')||'')))||'';
+  const sans=nodes.map(n=>{const ic=n.querySelector('[class*="icon-font-chess"], [data-figurine]');
+    const cls=(ic&&(ic.className+' '+(ic.getAttribute('data-figurine')||'')))||'';
     const letter=/king/i.test(cls)?'K':/queen/i.test(cls)?'Q':/rook/i.test(cls)?'R':/bishop/i.test(cls)?'B':/knight/i.test(cls)?'N':'';
     return letter+(n.innerText||'').replace(/\s+/g,'').trim();}).filter(Boolean);
   const overEl=document.querySelector('[class*="header-title"], [class*="game-over"], .modal');
