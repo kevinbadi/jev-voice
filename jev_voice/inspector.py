@@ -52,11 +52,26 @@ DISPLAY: str = os.environ.get("AGENT_DISPLAY", "main") or "main"
 DRIVER: str = os.environ.get("TASK_DRIVER", "browser") or "browser"
 
 
+_SPEAKER = None
+
+
+def _speaker():
+    global _SPEAKER
+    if _SPEAKER is None:
+        from .tts import Speaker
+
+        _SPEAKER = Speaker(enabled=True, engine=os.environ.get("TTS_ENGINE", "kokoro"))
+    return _SPEAKER
+
+
 def _job(mode: str, message: str | None) -> None:
     """Background job: the page polls /api/state instead of holding one long request open."""
     import time
 
     JOB.update(running=True, mode=mode, phase="filters", error=None, started_at=time.time(), stop=False)
+    if mode == "chess" and os.environ.get("CHESS_VOICE", "1") not in ("0", "false", "no"):
+        # Load the local voice model while Jev is still getting to the board, so the first narration is instant.
+        threading.Thread(target=lambda: _speaker().say("Ready.", wait=True), daemon=True).start()
     try:
         agent = AGENT
         if agent is None:
@@ -112,13 +127,16 @@ def _job(mode: str, message: str | None) -> None:
 
             def chess_step(step: dict[str, Any]) -> None:
                 agent.state.setdefault("chess_moves", []).append(
-                    {"label": step["action"]["label"], "who": "us" if step["operation"] == "MOVE" else "them", "fen": step.get("fen")})
+                    {"label": step["action"]["label"], "who": "us" if step["operation"] == "MOVE" else "them", "fen": step.get("fen"),
+                     "decision": step.get("decision"), "narration": step.get("narration"), "why": step.get("why")})
                 try:
                     agent.state["page"]["screenshot"] = agent.browser.call("Page.captureScreenshot", format="jpeg", quality=60)["data"]
                 except Exception:  # noqa: BLE001
                     pass
 
-            summary = chess_play.play(agent.browser, on_step=chess_step, stop=lambda: JOB["stop"], think_s=0.8)
+            speaker = _speaker() if os.environ.get("CHESS_VOICE", "1") not in ("0", "false", "no") else None
+            summary = chess_play.play(agent.browser, on_step=chess_step, stop=lambda: JOB["stop"], think_s=0.8,
+                                      speak=(lambda text: threading.Thread(target=speaker.say, args=(text,), daemon=True).start()) if speaker else None)
             agent.state["chess_result"] = summary["result"]
             if summary["result"] == "board not accepting moves":
                 agent.state["status"] = "done"  # go around: Jev finds the live game, then we play

@@ -221,15 +221,92 @@ def jev_choose(board: chess.Board, options: list[dict[str, Any]], style: str | N
                                    "usage": result.get("usage", {})}
 
 
+LAST_DECISION: dict[str, Any] = {}
+
+
+def facts_for(board: chess.Board, move: chess.Move, options: list[dict[str, Any]], option: dict[str, Any]) -> dict[str, str]:
+    """True statements about the chosen move, computed in code. Jev picks the one worth saying."""
+    piece = board.piece_at(move.from_square)
+    name = chess.piece_name(piece.piece_type) if piece else "piece"
+    out: dict[str, str] = {}
+    if board.is_capture(move):
+        taken = board.piece_at(move.to_square)
+        out["capture"] = f"it takes the {chess.piece_name(taken.piece_type) if taken else 'pawn'} on {chess.square_name(move.to_square)}"
+    if board.gives_check(move):
+        out["check"] = "it gives check"
+    if board.is_castling(move):
+        out["castle"] = "it castles, tucking the king away and connecting the rooks"
+    if piece and piece.piece_type in (chess.KNIGHT, chess.BISHOP) and chess.square_rank(move.from_square) in (0, 7):
+        out["develop"] = f"it develops the {name} toward the centre"
+    if piece and piece.piece_type == chess.PAWN and chess.square_file(move.to_square) in (3, 4) and not board.is_capture(move):
+        out["centre"] = "it claims space in the centre"
+    board.push(move)
+    attacked = [chess.square_name(sq) for sq in chess.SQUARES if board.piece_at(sq) and board.piece_at(sq).color != board.turn
+                and board.is_attacked_by(not board.turn, sq) and board.piece_at(sq).piece_type in (chess.QUEEN, chess.ROOK)]
+    board.pop()
+    if attacked:
+        target = board.piece_at(chess.parse_square(attacked[0]))
+        out["threat"] = f"it attacks the {chess.piece_name(target.piece_type) if target else 'piece'} on {attacked[0]}"
+    if len(options) > 1:
+        gap = option["cp"] - options[1]["cp"] if option["rank"] == 1 else options[0]["cp"] - option["cp"]
+        if option["rank"] == 1 and gap >= 80:
+            out["clear"] = f"it is clearly best, {gap / 100:.1f} pawns ahead of {options[1]['san']}"
+        elif option["rank"] == 1:
+            out["close"] = f"{options[1]['san']} was nearly as good"
+    if option["cp"] >= 300:
+        out["winning"] = "the position is winning"
+    elif option["cp"] <= -300:
+        out["losing"] = "the position is difficult; this limits the damage"
+    return out or {"plan": f"it follows the engine's plan: {option['line']}"}
+
+
+def teaching_line(board: chess.Board, move: chess.Move, options: list[dict[str, Any]], option: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """One spoken sentence: the move, the fact Jev chose to stress, the eval, the runner-up."""
+    from jev_ultrafast.model import post_json, validate_choice
+
+    from . import config
+
+    facts = facts_for(board, move, options, option)
+    san = board.san(move)
+    key = os.environ.get("TYPESAFE_API_KEY") or config.TYPESAFE_API_KEY
+    chosen = next(iter(facts))
+    meta: dict[str, Any] = {"facts": facts, "chosen_fact": chosen}
+    if key and len(facts) > 1:
+        try:
+            r = post_json(config.TYPESAFE_URL, key, {"model": os.environ.get("TYPESAFE_MODEL", config.JEV_MODEL),
+                "state": {"move": san, "eval": option["eval"], "line": option["line"], "candidates": [(o["san"], o["eval"]) for o in options]},
+                "questions": {"why": {"type": "choice", "criteria": facts,
+                                      "instructions": "Every fact is true of this move. Which one best explains to a learner why it is the move to play?"}}})
+            answer = validate_choice(r["answers"]["why"], facts)
+            chosen = answer["choice"]
+            meta.update(chosen_fact=chosen, probabilities=answer["probabilities"], usage=r.get("usage", {}))
+        except Exception:  # noqa: BLE001
+            pass
+    alt = f" {options[1]['san']} was the alternative at {options[1]['eval']}." if len(options) > 1 and option["rank"] == 1 else ""
+    spoken = f"{san}: {facts[chosen]}. Stockfish rates it {option['eval']}.{alt}"
+    return spoken, meta
+
+
 def choose_move(board: chess.Board, think_s: float = 0.6, style: str | None = None) -> tuple[chess.Move, str]:
+    global LAST_DECISION
     options = candidates(board, think_s)
     if options:
         picked = jev_choose(board, options, style) if os.environ.get("CHESS_CHOOSER", "jev") == "jev" else None
         if picked:
             option, meta = picked
             tag = f"jev {meta['probabilities'].get(option['san'], 0):.0%} · stockfish #{option['rank']} {option['eval']} · {meta['latency_ms']} ms"
-            return option["move"], tag
-        return options[0]["move"], f"stockfish #1 {options[0]['eval']}"
+        else:
+            option, meta = options[0], {"probabilities": {}, "confidence": None, "latency_ms": 0}
+            tag = f"stockfish #1 {options[0]['eval']}"
+        LAST_DECISION = {
+            "fen": board.fen(),
+            "question": "Choose the move to play from the engine's candidates. Default: the strongest move (engine rank #1)."
+                        + (f" Style: {style}." if style else ""),
+            "candidates": [{"san": o["san"], "rank": o["rank"], "eval": o["eval"], "cp": o["cp"], "line": o["line"],
+                            "p": meta["probabilities"].get(o["san"])} for o in options],
+            "chosen": option["san"], "jev_confidence": meta.get("confidence"), "jev_ms": meta.get("latency_ms"),
+        }
+        return option["move"], tag
     path = os.environ.get("STOCKFISH_PATH") or shutil.which("stockfish") or "/opt/homebrew/bin/stockfish"
     if os.path.exists(path):
         try:
@@ -333,7 +410,8 @@ def sync(board: chess.Board, observed: dict[int, chess.Piece]) -> tuple[chess.Bo
 
 
 def play(browser: Any, max_moves: int = 200, on_step: Callable[[dict[str, Any]], None] | None = None,
-         stop: Callable[[], bool] | None = None, think_s: float = 0.6, style: str | None = None) -> dict[str, Any]:
+         stop: Callable[[], bool] | None = None, think_s: float = 0.6, style: str | None = None,
+         speak: Callable[[str], None] | None = None) -> dict[str, Any]:
     """Loop: keep the position in code, infer the opponent's move from the board, choose, click, wait."""
     session = browser.session
     played: list[dict[str, Any]] = []
@@ -400,10 +478,22 @@ def play(browser: Any, max_moves: int = 200, on_step: Callable[[dict[str, Any]],
             time.sleep(0.6)
             continue
         misses = 0
+        decision = dict(LAST_DECISION)
+        narration, why = ("", {})
+        if decision.get("candidates") and os.environ.get("CHESS_TEACH", "1") not in ("0", "false", "no"):
+            option = next((o for o in decision["candidates"] if o["san"] == san), decision["candidates"][0])
+            try:
+                narration, why = teaching_line(board, move, [{"san": o["san"], "eval": o["eval"], "cp": o["cp"], "rank": o["rank"], "line": o["line"]}
+                                                             for o in decision["candidates"]], {**option, "move": move})
+            except Exception as error:  # noqa: BLE001
+                narration = f"{san}. Stockfish rates it {option['eval']}."
+                why = {"error": str(error)[:80]}
+            if speak:
+                speak(narration)
         board.push(move)
         played.append({"ply": board.ply(), "san": san, "engine": engine, "fen": board.fen()})
         if on_step:
             on_step({"action": {"label": f"{san} ({engine})", "kind": "chess", "key": None}, "operation": "MOVE", "text": None,
-                     "step": len(played), "fen": board.fen()})
+                     "step": len(played), "fen": board.fen(), "decision": decision, "narration": narration, "why": why})
         print(f"  ♟ {len(played)}. {san}  [{engine}]", flush=True)
     return {"result": "move limit", "moves": played}

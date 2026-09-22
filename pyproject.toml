@@ -10,11 +10,13 @@ dependencies = [
     "chess>=1.11.2",
     "httpx>=0.28.1",
     "jev-ultrafast",
+    "kokoro-onnx>=0.6.1",
     "numpy>=2.5.3",
     "pyobjc-framework-applicationservices>=12.2.2",
     "pyobjc-framework-cocoa>=12.2.2",
     "pyobjc-framework-quartz>=12.2.2",
     "sounddevice>=0.5.6",
+    "soundfile>=0.14.0",
 ]
 
 [project.scripts]

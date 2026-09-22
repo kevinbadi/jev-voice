@@ -849,3 +849,24 @@ button.go { font-size: 14px; min-height: 40px; padding: 8px 18px; }
 
 .hero-step.them { color: #6a766c; }
 .hero-step.them span { background: #b9c2b4; }
+
+.tree { border-top: 1px solid var(--line); padding: 14px 18px 16px; background: #fbfbf8; }
+.tree[hidden] { display: none; }
+.tree-head { display: flex; align-items: baseline; gap: 14px; }
+.tree-head .eyebrow { margin: 0; }
+#tree-move { font: 600 15px ui-monospace, monospace; color: #172a20; }
+#tree-nav { margin-left: auto; font-size: 11px; color: #8d9085; }
+#tree-nav button { min-height: 22px; padding: 1px 8px; font-size: 11px; margin-left: 4px; }
+.tree-q { margin: 6px 0 10px; font-size: 11px; color: #6a766c; }
+.tree-cands { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
+.cand { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: white; position: relative; overflow: hidden; animation: fadein 0.4s ease-out both; }
+.cand.chosen { border-color: var(--green); background: #eef6e5; }
+.cand .san { font: 600 14px ui-monospace, monospace; color: #172a20; }
+.cand .rank { float: right; font: 10px ui-monospace, monospace; color: #8d9085; }
+.cand .eval { font: 12px ui-monospace, monospace; color: #2f6b43; margin-left: 8px; }
+.cand .line { display: block; font-size: 10px; color: #8d9085; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cand .jev { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 10px; color: #5b3f9e; }
+.cand .jev i { flex: 1; height: 4px; border-radius: 2px; background: #e6dff5; position: relative; }
+.cand .jev i::after { content: ""; position: absolute; inset: 0; width: var(--p); background: #7d5fc4; border-radius: 2px; transition: width 0.4s; }
+.tree-say { margin: 12px 0 0; font-size: 13px; color: #172a20; padding: 10px 12px; border-left: 3px solid var(--orange); background: #fff7f2; border-radius: 0 8px 8px 0; }
+.tree-say small { display: block; color: #8d9085; font-size: 10px; margin-top: 4px; }

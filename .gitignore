@@ -8,3 +8,5 @@ recordings/
 .ruff_cache/
 .DS_Store
 runs/
+models/kokoro/*.onnx
+models/kokoro/*.bin

@@ -224,7 +224,25 @@ function tick() {
   $("phase-times").textContent = phaseTimes.join(" · ");
   $("viewport").classList.toggle("busy", busy);
 }
+let treeIndex = null; // null = latest
+function renderTree() {
+  const moves = (state.chess_moves || []).filter((m) => typeof m === "object" && m.decision && m.decision.candidates);
+  const tree = $("tree");
+  if (!moves.length) { tree.hidden = true; return; }
+  tree.hidden = false;
+  const idx = treeIndex == null || treeIndex >= moves.length ? moves.length - 1 : treeIndex;
+  const m = moves[idx], d = m.decision;
+  $("tree-move").textContent = `${idx + 1}. ${d.chosen}`;
+  $("tree-nav").innerHTML = `${idx + 1} / ${moves.length} <button type="button" id="tree-prev" ${idx === 0 ? "disabled" : ""}>‹</button><button type="button" id="tree-next" ${idx >= moves.length - 1 ? "disabled" : ""}>›</button>`;
+  $("tree-prev").onclick = () => { treeIndex = idx - 1; renderTree(); };
+  $("tree-next").onclick = () => { treeIndex = idx + 1 >= moves.length - 1 ? null : idx + 1; renderTree(); };
+  $("tree-q").textContent = `Jev was asked: ${d.question}` + (d.jev_confidence != null ? ` · confidence ${percent(d.jev_confidence)} · ${d.jev_ms} ms` : "");
+  $("tree-cands").innerHTML = d.candidates.map((c) => `<div class="cand ${c.san === d.chosen ? "chosen" : ""}"><span class="rank">stockfish #${c.rank}</span><span class="san">${escape(c.san)}</span><span class="eval">${escape(c.eval)}</span><span class="line">${escape(c.line || "")}</span>${c.p != null ? `<div class="jev">jev ${percent(c.p)}<i style="--p:${c.p * 100}%"></i></div>` : ""}</div>`).join("");
+  const why = m.why || {};
+  $("tree-say").innerHTML = m.narration ? `${escape(m.narration)}<small>${why.chosen_fact ? `Jev chose the fact “${escape(why.chosen_fact)}” from ${Object.keys(why.facts || {}).length} true facts computed in code` : ""}</small>` : "";
+}
 function renderHero() {
+  renderTree();
   const history = state.history || [];
   const recent = history.slice(-6);
   const stepItems = recent.map((h) => ({ key: `s${h.step}`, cls: "hero-step done", html: `<span>✓</span>${escape(describe(h))}` }));
