@@ -40,7 +40,11 @@ READ = r"""(() => {
              /checkmate|game over|you won|you lost|draw by|resigned|time out/i.test((overEl&&overEl.innerText)||'');
   const promo=[...document.querySelectorAll('.promotion-piece, [class*="promotion"] .piece')].filter(e=>e.checkVisibility()).map(e=>{
     const rr=e.getBoundingClientRect(); const m=/\b([wb][nbrq])\b/.exec(e.className); return {piece:m?m[1]:'', x:rr.x+rr.width/2, y:rr.y+rr.height/2};});
-  return {rect:{x:r.x,y:r.y,w:r.width,h:r.height}, flipped:b.classList.contains('flipped'), pieces,
+  // A live game (not a lobby preview board): a game URL, or in-game controls such as Resign / Abort / Draw.
+  const controls=[...document.querySelectorAll('button,[role="button"]')].filter(e=>e.checkVisibility())
+    .map(e=>((e.getAttribute('aria-label')||'')+' '+(e.innerText||'')).toLowerCase());
+  const live=/\/game\//.test(location.pathname) || controls.some(t=>/\b(resign|abort|offer draw|draw)\b/.test(t));
+  return {live, rect:{x:r.x,y:r.y,w:r.width,h:r.height}, flipped:b.classList.contains('flipped'), pieces,
           moves:(ml&&ml.innerText||'').replace(/\s+/g,' ').trim(), sans, over, promo, url:location.href};
 })()"""
 
@@ -340,6 +344,7 @@ def play(browser: Any, max_moves: int = 200, on_step: Callable[[dict[str, Any]],
     if not moves_of(snap) and board.piece_map() != chess.Board().piece_map():
         board.turn = us  # joined mid-game without a move list: the caller says it is our move
     idle = 0.0
+    misses = 0
     while len(played) < max_moves:
         if stop and stop():
             break
@@ -372,9 +377,13 @@ def play(browser: Any, max_moves: int = 200, on_step: Callable[[dict[str, Any]],
         san = board.san(move)
         print(f"  ♟ thinking done in {time.time() - t0:.1f}s → {san}", flush=True)
         if not play_move(session, snap, move):
-            print(f"  ♟ {san} did not register; re-reading", flush=True)
+            misses += 1
+            print(f"  ♟ {san} did not register ({misses}); re-reading", flush=True)
+            if misses >= 3:
+                return {"result": "board not accepting moves", "moves": played}
             time.sleep(0.6)
             continue
+        misses = 0
         board.push(move)
         played.append({"ply": board.ply(), "san": san, "engine": engine, "fen": board.fen()})
         if on_step:

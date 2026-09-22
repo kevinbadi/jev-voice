@@ -68,7 +68,7 @@ def _job(mode: str, message: str | None) -> None:
                 from . import chess_play
 
                 snap = chess_play.read(agent.browser.session)
-                return bool(snap and len(snap["pieces"]) >= 2 and not snap["over"])
+                return bool(snap and snap.get("live") and len(snap["pieces"]) >= 2 and not snap["over"])
             except Exception:  # noqa: BLE001
                 return False
 
@@ -88,9 +88,26 @@ def _job(mode: str, message: str | None) -> None:
                         agent.command("tick")
                     except (StaleScreen, StalePage) as stale:
                         agent.stale(stale)
-        if mode == "chess" and not JOB["stop"] and agent.state["status"] == "done":
+        rounds = 0
+        while mode == "chess" and not JOB["stop"] and agent.state["status"] == "done" and rounds < 4:
+            rounds += 1
             from . import chess_play
 
+            if not board_live():
+                # Reached "done" without a live game (a lobby preview board): let Jev keep going until one exists.
+                JOB["phase"] = "filters"
+                agent.state["status"] = "ready"
+                for _ in range(MAX_STEPS):
+                    if JOB["stop"] or board_live() or time.time() - JOB["started_at"] > MAX_SECONDS:
+                        break
+                    with LOCK:
+                        try:
+                            agent.command("tick")
+                        except (StaleScreen, StalePage) as stale:
+                            agent.stale(stale)
+                if not board_live():
+                    break
+                agent.state["status"] = "done"
             JOB["phase"] = "chess"
 
             def chess_step(step: dict[str, Any]) -> None:
@@ -103,6 +120,10 @@ def _job(mode: str, message: str | None) -> None:
 
             summary = chess_play.play(agent.browser, on_step=chess_step, stop=lambda: JOB["stop"], think_s=0.8)
             agent.state["chess_result"] = summary["result"]
+            if summary["result"] == "board not accepting moves":
+                agent.state["status"] = "done"  # go around: Jev finds the live game, then we play
+                continue
+            break
             try:
                 agent.state["page"]["screenshot"] = agent.browser.call("Page.captureScreenshot", format="jpeg", quality=60)["data"]
             except Exception:  # noqa: BLE001
