@@ -475,3 +475,17 @@ def test_goal_max_year_and_price_are_enforced():
     newer = {"title": "2022 Mercedes-Benz cla 250", "text": "", "year": 2022, "price": 14500, "km": None, "href": "b"}
     pricey = {"title": "2019 Mercedes-Benz cla", "text": "", "year": 2019, "price": 16000, "km": None, "href": "c"}
     assert rc.filter_constraints(goal, [older, newer, pricey]) == [older]
+
+
+def test_chess_position_replays_figurine_moves_and_detects_turn():
+    from jev_voice import chess_play as c
+
+    snap = {"sans": ["e4", "e5", "Nf3", "Nc6"], "moves": "1. e4 e5 2. f3 c6", "pieces": [], "flipped": False, "rect": {"x": 0, "y": 0, "w": 800, "h": 800}}
+    board = c.position(snap)
+    assert board.fen().startswith("r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w")
+    assert board.turn is True and c.our_color(snap) is True
+    assert c.moves_of({"sans": [], "moves": "1. e4 e5 2. Nf3"}) == ["e4", "e5", "Nf3"]
+    x, y = c.square_center({"rect": {"x": 229, "y": 66, "w": 744, "h": 744}, "flipped": False}, c.chess.E2)
+    assert (round(x), round(y)) == (648, 670)
+    xf, yf = c.square_center({"rect": {"x": 229, "y": 66, "w": 744, "h": 744}, "flipped": True}, c.chess.E2)
+    assert (round(xf), round(yf)) == (554, 205)
