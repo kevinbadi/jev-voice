@@ -178,6 +178,7 @@ function controls() {
   $("download").disabled = !state?.history?.length;
   const browserLive = state?.screen && state.driver === "browser" && !["idle", "preview"].includes(state.status);
   $("recommend").disabled = busy || !browserLive;
+  $("finish").disabled = !state?.screen || ["idle", "preview", "done"].includes(state?.status) && !state?.job?.running;
   $("send").disabled = busy || !browserLive || !state?.recommendation;
   $("full").disabled = busy || !browserLive;
 }
@@ -465,6 +466,17 @@ $("full").addEventListener("click", () =>
     await runJob("full", "Running the full flow…");
   }, "Running the full flow…"),
 );
+$("finish").addEventListener("click", async () => {
+  try {
+    await fetch("/api/finish", { method: "POST", headers: { "Content-Type": "application/json", "X-Demo-Token": token }, body: "{}" });
+  } catch {}
+  automatic = false;
+  clockStop();
+  setPhase("jev", "marked done");
+  try { state = await fetch("/api/state").then((r) => r.json()); } catch {}
+  render();
+  $("status").textContent = "Marked done";
+});
 $("stop").addEventListener("click", async () => {
   $("status").textContent = "Pausing after the current step…";
   try {

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import atexit
 import os
+import random
 import re
 import shutil
 import time
@@ -423,7 +424,8 @@ def sync(board: chess.Board, observed: dict[int, chess.Piece]) -> tuple[chess.Bo
 
 def play(browser: Any, max_moves: int = 200, on_step: Callable[[dict[str, Any]], None] | None = None,
          stop: Callable[[], bool] | None = None, think_s: float = 0.6, style: str | None = None,
-         speak: Callable[[str], None] | None = None) -> dict[str, Any]:
+         speak: Callable[[str], None] | None = None, speaking: Callable[[], bool] | None = None,
+         move_delay: float | None = None) -> dict[str, Any]:
     """Loop: keep the position in code, infer the opponent's move from the board, choose, click, wait."""
     session = browser.session
     played: list[dict[str, Any]] = []
@@ -482,14 +484,6 @@ def play(browser: Any, max_moves: int = 200, on_step: Callable[[dict[str, Any]],
         move, engine = choose_move(board, think_s, style or os.environ.get("CHESS_STYLE") or None)
         san = board.san(move)
         print(f"  ♟ thinking done in {time.time() - t0:.1f}s → {san}", flush=True)
-        if not play_move(session, snap, move):
-            misses += 1
-            print(f"  ♟ {san} did not register ({misses}); re-reading", flush=True)
-            if misses >= 3:
-                return {"result": "board not accepting moves", "moves": played}
-            time.sleep(0.6)
-            continue
-        misses = 0
         decision = dict(LAST_DECISION)
         narration, why = ("", {})
         if decision.get("candidates") and os.environ.get("CHESS_TEACH", "1") not in ("0", "false", "no"):
@@ -502,6 +496,24 @@ def play(browser: Any, max_moves: int = 200, on_step: Callable[[dict[str, Any]],
                 why = {"error": str(error)[:80]}
             if speak:
                 speak(narration)
+        # Pause before moving: a human-like delay (CHESS_MOVE_DELAY seconds ± 30%), and in learning mode wait
+        # until the narration has finished speaking so the point lands before the piece moves.
+        delay = move_delay if move_delay is not None else float(os.environ.get("CHESS_MOVE_DELAY", "5"))
+        target = time.monotonic() + delay * random.uniform(0.7, 1.3)
+        hard_cap = time.monotonic() + 25
+        time.sleep(0.4)  # let the speaker start before we ask whether it is speaking
+        while time.monotonic() < hard_cap and (time.monotonic() < target or (speaking and speaking())):
+            if stop and stop():
+                break
+            time.sleep(0.2)
+        if not play_move(session, snap, move):
+            misses += 1
+            print(f"  ♟ {san} did not register ({misses}); re-reading", flush=True)
+            if misses >= 3:
+                return {"result": "board not accepting moves", "moves": played}
+            time.sleep(0.6)
+            continue
+        misses = 0
         board.push(move)
         played.append({"ply": board.ply(), "san": san, "engine": engine, "fen": board.fen()})
         if on_step:

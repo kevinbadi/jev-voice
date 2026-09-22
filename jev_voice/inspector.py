@@ -136,7 +136,8 @@ def _job(mode: str, message: str | None) -> None:
 
             speaker = _speaker() if os.environ.get("CHESS_VOICE", "1") not in ("0", "false", "no") else None
             summary = chess_play.play(agent.browser, on_step=chess_step, stop=lambda: JOB["stop"], think_s=0.8,
-                                      speak=(lambda text: threading.Thread(target=speaker.say, args=(text,), daemon=True).start()) if speaker else None)
+                                      speak=(lambda text: threading.Thread(target=speaker.say, args=(text,), daemon=True).start()) if speaker else None,
+                                      speaking=(speaker.speaking if speaker else None))
             agent.state["chess_result"] = summary["result"]
             if summary["result"] == "board not accepting moves":
                 agent.state["status"] = "done"  # go around: Jev finds the live game, then we play
@@ -272,6 +273,12 @@ def command(name: str, body: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("Unknown run mode")
         JOB["sellers"] = max(1, min(10, int(body.get("sellers") or 1)))
         threading.Thread(target=_job, args=(mode, (body.get("message") or "").strip() or None), daemon=True).start()
+    elif name == "finish":
+        # Mark the current run as done: stop the job after its current step and freeze the state as complete.
+        JOB["stop"] = True
+        if AGENT:
+            AGENT.state["status"] = "done"
+            AGENT.state["last_error"] = None
     elif name == "stop":
         JOB["stop"] = True
         if AGENT and not JOB["running"]:
@@ -328,7 +335,7 @@ class Handler(BaseHTTPRequestHandler):
         ):
             return self.send(403, json.dumps({"error": "Local inspector requests only"}))
         name = self.path.removeprefix("/api/")
-        if name in ("run", "stop", "preview", "workflow_save", "workflow_delete"):
+        if name in ("run", "stop", "finish", "preview", "workflow_save", "workflow_delete"):
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 body = json.loads(self.rfile.read(length)) if 0 < length < 8192 else {}
