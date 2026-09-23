@@ -8,7 +8,7 @@ options (the executor still only ever runs an observed element or an offered key
 * ``tie_break``    when Jev picks BLOCKED, or its top choice is weak: choose among Jev's top candidates.
 * ``verify_done``  when Jev picks DONE: page text + screenshot against the checklist; names what is unmet.
 
-Model: ESCALATE_MODEL (default claude-fable-5-1, the most capable Claude; claude-haiku-4-5 for speed). Needs ANTHROPIC_API_KEY.
+Model: ESCALATE_MODEL (default claude-opus-5-5, the most capable Claude; claude-haiku-4-5 for speed). Needs ANTHROPIC_API_KEY.
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ import anthropic
 
 from . import config  # noqa: F401  (loads .env)
 
-MODEL = os.environ.get("ESCALATE_MODEL", "claude-fable-5-1")            # strong tier: planner, verifier, second opinion
+MODEL = os.environ.get("ESCALATE_MODEL", "claude-opus-5-5")            # strong tier: planner, verifier, second opinion
 FAST_MODEL = os.environ.get("ESCALATE_FAST_MODEL", "claude-haiku-4-5")  # fast tier: first arbitration, text values
 FAST_MIN_CONFIDENCE = float(os.environ.get("ESCALATE_FAST_MIN", "0.5"))  # below this the fast tier hands over to the strong one
 # Effort per slot (Claude 5 models think on every call; effort sets how long). Fast slots stay lighter.
